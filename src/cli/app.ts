@@ -18,6 +18,7 @@ export function buildCli(components: AppComponents) {
     },
     subCommands: {
       auth: () => import("./commands/auth.ts").then((m) => m.createAuthCommand(components)),
+      setup: () => import("./commands/setup.ts").then((m) => m.createSetupCommand(components)),
     },
   });
 }
