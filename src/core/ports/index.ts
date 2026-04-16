@@ -1,3 +1,4 @@
+export type { AkiflowHttpPort, ListTasksParams } from "./akiflow-http-port.ts";
 export type { AuthPort } from "./auth-port.ts";
 export type { TaskPort } from "./task-port.ts";
 export type { CachePort } from "./cache-port.ts";
