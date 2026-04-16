@@ -56,7 +56,6 @@ jobs:
 
       - name: Validate PR commit messages
         run: |
-          pre-commit run commitlint \
-            --hook-stage commit-msg \
-            --from-ref ${{ github.event.pull_request.base.sha }} \
-            --to-ref ${{ github.event.pull_request.head.sha }}
+          bunx --bun commitlint \
+            --from=${{ github.event.pull_request.base.sha }} \
+            --to=${{ github.event.pull_request.head.sha }}
