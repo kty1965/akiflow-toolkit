@@ -23,6 +23,7 @@ export function buildCli(components: AppComponents) {
       do: () => import("./commands/do.ts").then((m) => m.createDoCommand(components)),
       cache: () => import("./commands/cache.ts").then((m) => m.createCacheCommand(components)),
       setup: () => import("./commands/setup.ts").then((m) => m.createSetupCommand(components)),
+      completion: () => import("./commands/completion.ts").then((m) => m.createCompletionCommand(components)),
     },
   });
 }
