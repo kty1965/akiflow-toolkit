@@ -23,6 +23,9 @@ export function buildCli(components: AppComponents) {
       do: () => import("./commands/do.ts").then((m) => m.createDoCommand(components)),
       cache: () => import("./commands/cache.ts").then((m) => m.createCacheCommand(components)),
       setup: () => import("./commands/setup.ts").then((m) => m.createSetupCommand(components)),
+      project: () => import("./commands/project.ts").then((m) => m.createProjectCommand(components)),
+      cal: () => import("./commands/cal.ts").then((m) => m.createCalCommand(components)),
+      block: () => import("./commands/block.ts").then((m) => m.createBlockCommand(components)),
     },
   });
 }
