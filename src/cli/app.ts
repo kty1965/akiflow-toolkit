@@ -22,6 +22,7 @@ export function buildCli(components: AppComponents) {
       ls: () => import("./commands/ls.ts").then((m) => m.createLsCommand(components)),
       do: () => import("./commands/do.ts").then((m) => m.createDoCommand(components)),
       cache: () => import("./commands/cache.ts").then((m) => m.createCacheCommand(components)),
+      setup: () => import("./commands/setup.ts").then((m) => m.createSetupCommand(components)),
     },
   });
 }
