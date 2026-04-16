@@ -18,6 +18,11 @@ export function buildCli(components: AppComponents) {
     },
     subCommands: {
       auth: () => import("./commands/auth.ts").then((m) => m.createAuthCommand(components)),
+      add: () => import("./commands/add.ts").then((m) => m.createAddCommand(components)),
+      ls: () => import("./commands/ls.ts").then((m) => m.createLsCommand(components)),
+      do: () => import("./commands/do.ts").then((m) => m.createDoCommand(components)),
+      cache: () => import("./commands/cache.ts").then((m) => m.createCacheCommand(components)),
+      setup: () => import("./commands/setup.ts").then((m) => m.createSetupCommand(components)),
     },
   });
 }
