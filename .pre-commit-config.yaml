@@ -1,0 +1,40 @@
+# See https://pre-commit.com for more information
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+repos:
+  # Standard hygiene hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Commit message validation (commitlint)
+  - repo: local
+    hooks:
+      - id: commitlint
+        name: Lint commit message (Conventional Commits)
+        entry: bunx --bun commitlint --edit
+        language: system
+        stages: [commit-msg]
+        require_serial: true
+
+  # Biome lint (pre-commit stage)
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: Biome lint + format
+        entry: bunx @biomejs/biome check --write --no-errors-on-unmatched
+        language: system
+        files: '\.(ts|tsx|js|jsx)$'
+        pass_filenames: true
