@@ -7,6 +7,7 @@ import { IndexedDbReader } from "./indexeddb-reader.ts";
 export { detectBrowsers } from "./browser-detector.ts";
 export { IndexedDbReader } from "./indexeddb-reader.ts";
 export { ChromeCookieReader } from "./chrome-cookie.ts";
+export { CdpBrowserLogin, type CdpBrowserLoginOptions, parseTokenBody } from "./cdp-launcher.ts";
 
 /**
  * Create browser data readers for all detected browsers.
