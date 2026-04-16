@@ -61,6 +61,7 @@ export interface UpdateTaskPayload {
   done?: boolean;
   status?: TaskStatus;
   deleted_at?: string | null;
+  recurrence?: string | null;
 }
 
 // Label
