@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AuthSourceMissingError, NetworkError } from "../../../core/errors/index.ts";
+import { AuthExpiredError, AuthSourceMissingError, NetworkError } from "../../../core/errors/index.ts";
 import type { BrowserDataPort } from "../../../core/ports/browser-data-port.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
 import type { StoragePort } from "../../../core/ports/storage-port.ts";
@@ -323,6 +323,105 @@ describe("AuthService", () => {
       await expect(service.withAuth(op)).rejects.toBeInstanceOf(NetworkError);
       expect(attempts).toBe(2);
       expect(refresher.state.calls.length).toBe(1);
+    });
+
+    test("Tier 2 recovery: refresh fails, disk reload produces fresh creds → retry succeeds", async () => {
+      // Given: valid stored creds at start; refresh throws (expired refresh token);
+      //        a parallel process "writes" new creds to disk between attempts.
+      const initial = makeCredentials({ accessToken: "stale", refreshToken: "stale_refresh" });
+      const parallelUpdate = makeCredentials({
+        accessToken: "parallel_written",
+        refreshToken: "parallel_refresh",
+      });
+      let reloadCount = 0;
+      const storagePort: StoragePort = {
+        async saveCredentials() {},
+        async loadCredentials() {
+          reloadCount++;
+          // First call (authenticate) returns stale; subsequent calls (Tier 2 reload,
+          // Tier 3 stored-lookup) return the creds the parallel process "wrote".
+          return reloadCount === 1 ? initial : parallelUpdate;
+        },
+        async clearCredentials() {},
+        getConfigDir: () => "/tmp/test",
+      };
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("bad refresh", 401) };
+      const { service } = buildService({
+        storage: storagePort,
+        refreshAccessToken: refresher.fn,
+      });
+      let attempts = 0;
+      const op = async (token: string) => {
+        attempts++;
+        if (attempts === 1) throw new NetworkError("unauthorized", 401);
+        return token;
+      };
+
+      // When: withAuth runs
+      const result = await service.withAuth(op);
+
+      // Then: retry used the parallel-written token (Tier 2)
+      expect(result).toBe("parallel_written");
+      expect(attempts).toBe(2);
+      expect(refresher.state.calls.length).toBe(1);
+    });
+
+    test("Tier 3 recovery: refresh fails, disk unchanged, browser reader produces new creds → retry succeeds", async () => {
+      // Given: stale stored creds, refresh fails, disk has nothing new,
+      //        and a browser reader yields a fresh access token.
+      const storage = createStorage(makeCredentials({ accessToken: "stale", refreshToken: "bad_refresh" }));
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("bad refresh", 401) };
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "browser_fresh", browser: "Safari" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+      let attempts = 0;
+      const op = async (token: string) => {
+        attempts++;
+        if (attempts === 1) throw new NetworkError("unauthorized", 401);
+        return token;
+      };
+
+      // When: withAuth runs
+      const result = await service.withAuth(op);
+
+      // Then: Tier 3 reader was consulted and its token was used
+      expect(reader.calls).toBe(1);
+      expect(result).toBe("browser_fresh");
+      expect(attempts).toBe(2);
+    });
+
+    test("all tiers exhausted: Tier 3 creds also 401 → AuthExpiredError", async () => {
+      // Given: refresh succeeds (Tier 1), retry 401; disk reload matches Tier 1;
+      //        Tier 3 reader yields new creds, retry also 401.
+      const storage = createStorage(makeCredentials());
+      const refresher = createRefresher({ access_token: "tier1_token" });
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "tier3_token", browser: "Safari" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+      let attempts = 0;
+      const op = async () => {
+        attempts++;
+        throw new NetworkError("unauthorized", 401);
+      };
+
+      // When/Then: AuthExpiredError after all recovery tiers exhausted
+      await expect(service.withAuth(op)).rejects.toBeInstanceOf(AuthExpiredError);
+      expect(attempts).toBe(3); // initial + Tier 1 retry + Tier 3 retry (Tier 2 skipped, disk matches)
+      expect(reader.calls).toBe(1);
     });
   });
 
