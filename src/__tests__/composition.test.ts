@@ -2,9 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SyncCache } from "../adapters/fs/sync-cache.ts";
 import { StderrLogger } from "../adapters/observability/stderr-logger.ts";
 import { composeApp } from "../composition.ts";
 import { AuthService } from "../core/services/auth-service.ts";
+import { TaskCommandService } from "../core/services/task-command-service.ts";
+import { TaskQueryService } from "../core/services/task-query-service.ts";
 
 describe("composeApp", () => {
   let tempDir: string;
@@ -32,13 +35,16 @@ describe("composeApp", () => {
     // When: composing the application
     const components = composeApp();
 
-    // Then: logger, config, storage, authService are wired correctly
+    // Then: logger, config, storage, authService, cache, task services are wired correctly
     expect(components.logger).toBeInstanceOf(StderrLogger);
     expect(components.authService).toBeInstanceOf(AuthService);
     expect(components.storage).toBeDefined();
     expect(components.storage.getConfigDir()).toBe(tempDir);
     expect(components.config.configDir).toBe(tempDir);
     expect(components.config.logLevel).toBe("silent");
+    expect(components.cache).toBeInstanceOf(SyncCache);
+    expect(components.taskQuery).toBeInstanceOf(TaskQueryService);
+    expect(components.taskCommand).toBeInstanceOf(TaskCommandService);
   });
 
   test("config object returned by compose is frozen", () => {
