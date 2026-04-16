@@ -6,14 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type AppComponents, composeApp } from "../../composition.ts";
-import {
-  MCP_SERVER_NAME,
-  MCP_SERVER_VERSION,
-  PING_TOOL_DESCRIPTION,
-  PING_TOOL_NAME,
-  buildMcpServer,
-  pingHandler,
-} from "../../mcp/server.ts";
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION, buildMcpServer } from "../../mcp/server.ts";
 
 describe("MCP server core", () => {
   let tempDir: string;
@@ -53,36 +46,32 @@ describe("MCP server core", () => {
       expect(MCP_SERVER_NAME).toBe("akiflow");
       expect(MCP_SERVER_VERSION).toBe("0.0.0-development");
     });
-  });
 
-  describe("ping stub tool", () => {
-    test("pingHandler returns canonical pong response", async () => {
-      // Given: the exported ping handler
-      // When: invoking it directly
-      const result = await pingHandler();
-
-      // Then: content is [{ type: 'text', text: 'pong' }]
-      expect(result).toEqual({ content: [{ type: "text", text: "pong" }] });
-    });
-
-    test("ping tool is discoverable and callable via MCP protocol", async () => {
-      // Given: an MCP server connected to a client over in-memory transport
+    test("registers TASK-15 task and schedule tools and does not expose the old ping stub", async () => {
+      // Given: a fully composed server connected via in-memory transport
       const { server } = build();
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       const client = new Client({ name: "test-client", version: "0.0.0" });
       await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
       try {
-        // When: the client lists available tools and calls `ping`
-        const listed = await client.listTools();
-        const called = await client.callTool({ name: PING_TOOL_NAME, arguments: {} });
+        // When: the client lists tools
+        const { tools } = await client.listTools();
+        const names = tools.map((t) => t.name);
 
-        // Then: `ping` is listed with the configured description, and the call returns `pong`
-        const names = listed.tools.map((t) => t.name);
-        expect(names).toContain(PING_TOOL_NAME);
-        const pingTool = listed.tools.find((t) => t.name === PING_TOOL_NAME);
-        expect(pingTool?.description).toBe(PING_TOOL_DESCRIPTION);
-        expect(called.content).toEqual([{ type: "text", text: "pong" }]);
+        // Then: the 7 TASK-15 tools are registered and no ping stub remains
+        for (const expected of [
+          "get_tasks",
+          "search_tasks",
+          "create_task",
+          "update_task",
+          "complete_task",
+          "schedule_task",
+          "unschedule_task",
+        ]) {
+          expect(names).toContain(expected);
+        }
+        expect(names).not.toContain("ping");
       } finally {
         await client.close();
         await server.close();
@@ -111,15 +100,6 @@ describe("MCP server core", () => {
       // Given: stdout.write is spied
       // When: building the server (no transport attached yet)
       build();
-
-      // Then: nothing reached stdout
-      expect(writes).toEqual([]);
-    });
-
-    test("pingHandler does not write to stdout", async () => {
-      // Given: stdout.write is spied
-      // When: invoking pingHandler directly
-      await pingHandler();
 
       // Then: nothing reached stdout
       expect(writes).toEqual([]);
