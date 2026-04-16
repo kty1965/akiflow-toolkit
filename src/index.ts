@@ -1,8 +1,11 @@
 #!/usr/bin/env bun
 
 if (process.argv.includes("--mcp")) {
-  process.stderr.write("[akiflow] MCP server mode — not yet implemented\n");
-  process.exit(1);
+  // MCP mode: stdout reserved for JSON-RPC. All logging goes to stderr (ADR-0009 / H2).
+  const { composeApp } = await import("./composition.ts");
+  const { startMcpServer } = await import("./mcp/server.ts");
+  const components = composeApp();
+  await startMcpServer(components);
 } else {
   const { composeApp } = await import("./composition.ts");
   const { runCli } = await import("./cli/app.ts");
