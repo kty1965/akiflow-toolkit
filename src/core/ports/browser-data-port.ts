@@ -1,5 +1,5 @@
-import type { Credentials } from "../types.ts";
+import type { ExtractedToken } from "../types.ts";
 
 export interface BrowserDataPort {
-  extract(): Promise<Credentials | null>;
+  extract(): Promise<ExtractedToken | null>;
 }
