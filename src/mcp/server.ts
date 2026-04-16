@@ -1,34 +1,27 @@
 // ---------------------------------------------------------------------------
 // MCP Server — ADR-0002 / ADR-0009
 // stdio transport: stdout is reserved for JSON-RPC; all logs go to stderr.
-// Tool registration for real Akiflow tools is deferred to TASK-15 / TASK-16 —
-// only a `ping` stub is registered here to keep the server discoverable.
+// Tool registration is delegated to register* functions under src/mcp/tools/
+// so each bounded context (tasks, schedule, …) stays cohesive (ADR-0007).
 // ---------------------------------------------------------------------------
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { AppComponents } from "../composition.ts";
+import { registerScheduleTools } from "./tools/schedule.ts";
+import { registerTaskTools } from "./tools/tasks.ts";
 
 export const MCP_SERVER_NAME = "akiflow";
 export const MCP_SERVER_VERSION = "0.0.0-development";
 
-export const PING_TOOL_NAME = "ping";
-export const PING_TOOL_DESCRIPTION =
-  "Health check — returns 'pong'. Temporary stub until TASK-15 registers real tools.";
-
-export async function pingHandler(): Promise<{
-  content: Array<{ type: "text"; text: string }>;
-}> {
-  return { content: [{ type: "text", text: "pong" }] };
-}
-
-export function buildMcpServer(_components: AppComponents): McpServer {
+export function buildMcpServer(components: AppComponents): McpServer {
   const server = new McpServer({
     name: MCP_SERVER_NAME,
     version: MCP_SERVER_VERSION,
   });
 
-  server.tool(PING_TOOL_NAME, PING_TOOL_DESCRIPTION, {}, pingHandler);
+  registerTaskTools(server, components);
+  registerScheduleTools(server, components);
 
   return server;
 }
