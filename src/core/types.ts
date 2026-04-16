@@ -136,6 +136,14 @@ export interface TaskQueryOptions {
   limit?: number;
 }
 
+// Extracted token from browser (before conversion to Credentials)
+export interface ExtractedToken {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number; // Unix seconds (from JWT exp)
+  browser: string; // "Chrome", "Arc", "Brave", "Edge"
+}
+
 // Sync result
 export interface SyncResult {
   tasks: Task[];
