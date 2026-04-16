@@ -2,12 +2,16 @@
 // MCP Server — ADR-0002 / ADR-0009
 // stdio transport: stdout is reserved for JSON-RPC; all logs go to stderr.
 // Tool registration is delegated to register* functions under src/mcp/tools/
-// so each bounded context (tasks, schedule, …) stays cohesive (ADR-0007).
+// so each bounded context (tasks, schedule, calendar, organize, auth) stays
+// cohesive (ADR-0007).
 // ---------------------------------------------------------------------------
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { AppComponents } from "../composition.ts";
+import { registerAuthStatusTool } from "./tools/auth-status.ts";
+import { registerCalendarTools } from "./tools/calendar.ts";
+import { registerOrganizeTools } from "./tools/organize.ts";
 import { registerScheduleTools } from "./tools/schedule.ts";
 import { registerTaskTools } from "./tools/tasks.ts";
 
@@ -22,6 +26,9 @@ export function buildMcpServer(components: AppComponents): McpServer {
 
   registerTaskTools(server, components);
   registerScheduleTools(server, components);
+  registerCalendarTools(server, components);
+  registerOrganizeTools(server, components);
+  registerAuthStatusTool(server, components);
 
   return server;
 }
