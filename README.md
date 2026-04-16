@@ -25,14 +25,29 @@ Key decisions are documented as Architecture Decision Records (ADRs):
 - [ADR Index](./docs/adr/README.md) — All 15 ADRs
 - Highlights: Bun runtime, Hexagonal (Ports & Adapters), Outcome-first MCP Tools, semantic-release, Test Diamond
 
+## Installation
+
+> Not yet published to npm. Currently development-only.
+
+```bash
+# npm (after publish)
+npm install -g akiflow-toolkit
+
+# Bun (after publish)
+bun install -g akiflow-toolkit
+
+# From source (now)
+git clone https://github.com/kty1965/akiflow-toolkit.git
+cd akiflow-toolkit
+bun install
+bun run dev
+```
+
 ## Quick Start
 
 > Coming soon after initial implementation.
 
 ```bash
-# Install
-npm install -g akiflow-toolkit
-
 # Authenticate (auto-extracts from browser)
 af auth
 
@@ -54,16 +69,28 @@ af setup claude-code
 
 ## Development
 
-```bash
-# Prerequisites
-# - Bun >= 1.0.0 (https://bun.sh)
-# - Python pre-commit (brew install pre-commit)
+### Prerequisites
 
+- [Bun](https://bun.sh) >= 1.0.0
+- [pre-commit](https://pre-commit.com) (`brew install pre-commit` or `pip install pre-commit`)
+
+### Setup
+
+```bash
 git clone https://github.com/kty1965/akiflow-toolkit.git
 cd akiflow-toolkit
 bun install
 pre-commit install --install-hooks
-bun test
+```
+
+### Commands
+
+```bash
+bun run dev          # Hot reload 개발 모드
+bun test             # 테스트 실행
+bun run lint         # Biome 린트
+bun run build        # npm 배포용 dist/ 빌드
+bun run build:binary # 크로스 플랫폼 바이너리 빌드
 ```
 
 ## Disclaimer
