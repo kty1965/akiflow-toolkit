@@ -425,6 +425,29 @@ describe("AuthService", () => {
     });
   });
 
+  describe("refresh mutex", () => {
+    test("concurrent withAuth calls share a single refresh", async () => {
+      const storage = createStorage(makeCredentials());
+      const refresher = createRefresher({ access_token: "shared_refreshed" });
+      const { service } = buildService({
+        storage: storage.port,
+        refreshAccessToken: refresher.fn,
+      });
+      let attempt = 0;
+      const op = async (token: string) => {
+        attempt++;
+        if (attempt <= 2) throw new NetworkError("unauthorized", 401);
+        return token;
+      };
+
+      const [r1, r2] = await Promise.all([service.withAuth(op), service.withAuth(op)]);
+
+      expect(r1).toBe("shared_refreshed");
+      expect(r2).toBe("shared_refreshed");
+      expect(refresher.state.calls.length).toBe(1);
+    });
+  });
+
   describe("setManualToken", () => {
     test("exchanges + saves + returns creds with source=manual", async () => {
       // Given: a refresher that returns a brand-new access token

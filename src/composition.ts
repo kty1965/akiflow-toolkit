@@ -41,7 +41,13 @@ export function composeApp(): AppComponents {
   });
   const cache = new SyncCache(config.cacheDir, config.cacheTtlSeconds);
   const http = new AkiflowHttpAdapter(crypto.randomUUID(), logger, config.apiBaseUrl);
-  const taskQuery = new TaskQueryService({ auth: authService, http, logger });
+  const taskQuery = new TaskQueryService({
+    auth: authService,
+    http,
+    cache,
+    cacheTtlSeconds: config.cacheTtlSeconds,
+    logger,
+  });
   const taskCommand = new TaskCommandService({ auth: authService, http, logger });
   return { logger, config, authService, storage, cache, taskQuery, taskCommand };
 }
