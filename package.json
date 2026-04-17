@@ -37,16 +37,16 @@
     "chrono-node": "^2.9.0",
     "citty": "^0.2.1",
     "rrule": "^2.8.1",
-    "zod": "^3.24.4"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@commitlint/cli": "^20.5.0",
-    "@commitlint/config-conventional": "^19.8.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^11.0.1",
-    "@semantic-release/npm": "^12.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.5",
     "@types/bun": "latest",
     "semantic-release": "^24.2.4"
   },
