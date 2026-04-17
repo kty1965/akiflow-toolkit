@@ -22,7 +22,7 @@ jobs:
           - { platform: bun-darwin-x64, name: af-darwin-x64 }
           - { platform: bun-darwin-arm64, name: af-darwin-arm64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -54,7 +54,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -67,7 +67,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.14"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
