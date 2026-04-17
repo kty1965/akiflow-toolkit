@@ -39,38 +39,38 @@ _af_completion() {
   local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   local commands="auth add ls do cache task project cal block setup completion --mcp --help --version"
 
-  if [[ \$COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=( \$(compgen -W "\$commands" -- "\$cur") )
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
     return 0
   fi
 
-  case "\$prev" in
+  case "$prev" in
     auth)
-      COMPREPLY=( \$(compgen -W "status logout refresh --manual" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "status logout refresh --manual" -- "$cur") )
       return 0
       ;;
     task)
-      COMPREPLY=( \$(compgen -W "edit move plan snooze delete" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "edit move plan snooze delete" -- "$cur") )
       return 0
       ;;
     project)
-      COMPREPLY=( \$(compgen -W "ls add delete" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "ls add delete" -- "$cur") )
       return 0
       ;;
     cache)
-      COMPREPLY=( \$(compgen -W "clear" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "clear" -- "$cur") )
       return 0
       ;;
     setup)
-      COMPREPLY=( \$(compgen -W "claude-code cursor claude-desktop" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "claude-code cursor claude-desktop" -- "$cur") )
       return 0
       ;;
     completion)
-      COMPREPLY=( \$(compgen -W "bash zsh fish" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
       return 0
       ;;
     add|ls)
-      COMPREPLY=( \$(compgen -W "--today --tomorrow --date --at --duration --project --json --inbox --done --search" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "--today --tomorrow --date --at --duration --project --json --inbox --done --search" -- "$cur") )
       return 0
       ;;
   esac

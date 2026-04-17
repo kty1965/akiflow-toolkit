@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  addDaysIso,
   type CalCommandComponents,
   type CalQueryApi,
   type CliWriter,
-  addDaysIso,
   computeFreeSlots,
   createCalCommand,
   fetchRange,

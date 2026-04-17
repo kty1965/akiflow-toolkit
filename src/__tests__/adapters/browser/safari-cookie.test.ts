@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SafariCookieReader, parseBinaryCookies } from "../../../adapters/browser/safari-cookie.ts";
+import { parseBinaryCookies, SafariCookieReader } from "../../../adapters/browser/safari-cookie.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
 
 const silentLogger: LoggerPort = {

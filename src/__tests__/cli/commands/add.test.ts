@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AddCommandComponents,
-  type CliWriter,
-  type TaskCommandApi,
   buildCreateInput,
+  type CliWriter,
   createAddCommand,
   parseDurationMs,
   resolveDate,
+  type TaskCommandApi,
 } from "../../../cli/commands/add.ts";
 import { ValidationError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
@@ -39,9 +39,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function createFakeTaskCommand(overrides?: {
-  createTask?: (input: CreateTaskInput) => Promise<Task>;
-}): { service: TaskCommandApi; calls: { createTask: CreateTaskInput[] } } {
+function createFakeTaskCommand(overrides?: { createTask?: (input: CreateTaskInput) => Promise<Task> }): {
+  service: TaskCommandApi;
+  calls: { createTask: CreateTaskInput[] };
+} {
   const calls = { createTask: [] as CreateTaskInput[] };
   const service: TaskCommandApi = {
     async createTask(input) {
