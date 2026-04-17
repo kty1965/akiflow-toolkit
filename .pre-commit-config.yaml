@@ -38,3 +38,9 @@ repos:
         language: system
         files: '\.(ts|tsx|js|jsx)$'
         pass_filenames: true
+      - id: tsc-check
+        name: TypeScript type check
+        entry: bunx tsc --noEmit
+        language: system
+        files: '\.ts$'
+        pass_filenames: false

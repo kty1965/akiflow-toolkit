@@ -20,7 +20,18 @@ export interface AuthServiceDeps {
 }
 
 export class AuthService {
+  private refreshPromise: Promise<TokenRefreshResponse> | null = null;
+
   constructor(private readonly deps: AuthServiceDeps) {}
+
+  private async refreshOnce(refreshToken: string): Promise<TokenRefreshResponse> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.deps.refreshAccessToken(refreshToken).finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
+  }
 
   async authenticate(): Promise<Credentials> {
     const stored = await this.deps.storage.loadCredentials();
@@ -113,7 +124,7 @@ export class AuthService {
   private async recoverTier1Refresh(creds: Credentials): Promise<Credentials | null> {
     if (!creds.refreshToken) return null;
     try {
-      const refreshed = await this.deps.refreshAccessToken(creds.refreshToken);
+      const refreshed = await this.refreshOnce(creds.refreshToken);
       const newCreds: Credentials = {
         ...creds,
         accessToken: refreshed.access_token,
@@ -204,7 +215,7 @@ export class AuthService {
     const savedAt = new Date().toISOString();
 
     if (extracted.refreshToken) {
-      const refreshed = await this.deps.refreshAccessToken(extracted.refreshToken);
+      const refreshed = await this.refreshOnce(extracted.refreshToken);
       return {
         accessToken: refreshed.access_token,
         refreshToken: refreshed.refresh_token ?? extracted.refreshToken,

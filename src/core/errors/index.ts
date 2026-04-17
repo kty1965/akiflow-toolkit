@@ -22,19 +22,19 @@ export abstract class AkiflowError extends Error {
 // --- Authentication errors ---
 
 export class AuthError extends AkiflowError {
-  readonly code = "AUTH_GENERIC" as const;
-  readonly userMessage = "인증이 필요합니다.";
-  readonly hint = "터미널에서 'af auth'를 실행하세요.";
+  readonly code: string = "AUTH_GENERIC";
+  readonly userMessage: string = "인증이 필요합니다.";
+  readonly hint: string = "터미널에서 'af auth'를 실행하세요.";
 }
 
 export class AuthExpiredError extends AuthError {
-  override readonly code = "AUTH_EXPIRED" as const;
+  override readonly code = "AUTH_EXPIRED";
   override readonly userMessage = "인증이 만료되었습니다.";
   override readonly hint = "'af auth refresh' 또는 'af auth'를 실행하세요.";
 }
 
 export class AuthSourceMissingError extends AuthError {
-  override readonly code = "AUTH_SOURCE_MISSING" as const;
+  override readonly code = "AUTH_SOURCE_MISSING";
   override readonly userMessage = "인증 정보를 어디서도 찾을 수 없습니다.";
   override readonly hint = "브라우저에서 Akiflow에 로그인 후 'af auth'를 실행하세요.";
 }
@@ -42,9 +42,9 @@ export class AuthSourceMissingError extends AuthError {
 // --- Network / API errors ---
 
 export class NetworkError extends AkiflowError {
-  readonly code = "NETWORK_GENERIC" as const;
-  readonly userMessage = "Akiflow 서버에 연결할 수 없습니다.";
-  readonly hint = "네트워크 연결을 확인해주세요.";
+  readonly code: string = "NETWORK_GENERIC";
+  readonly userMessage: string = "Akiflow 서버에 연결할 수 없습니다.";
+  readonly hint: string = "네트워크 연결을 확인해주세요.";
 
   constructor(
     message: string,
@@ -56,7 +56,7 @@ export class NetworkError extends AkiflowError {
 }
 
 export class ApiSchemaError extends NetworkError {
-  override readonly code = "API_SCHEMA_MISMATCH" as const;
+  override readonly code = "API_SCHEMA_MISMATCH";
   override readonly userMessage = "Akiflow API 응답 형식이 예상과 다릅니다.";
   override readonly hint = "Akiflow 내부 API가 변경되었을 수 있습니다. 최신 버전으로 업데이트하세요.";
 }

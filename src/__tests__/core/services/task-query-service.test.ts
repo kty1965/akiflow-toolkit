@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NetworkError } from "../../../core/errors/index.ts";
 import type { AkiflowHttpPort, ListTasksParams } from "../../../core/ports/akiflow-http-port.ts";
+import type { CacheMeta, CachePort } from "../../../core/ports/cache-port.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
 import type { StoragePort } from "../../../core/ports/storage-port.ts";
 import { AuthService } from "../../../core/services/auth-service.ts";
@@ -143,6 +144,50 @@ function createStubHttp(opts: StubHttpOptions): { port: AkiflowHttpPort; state: 
     async getTimeSlots(token, date) {
       state.calls.push({ method: "getTimeSlots", args: [token, date] });
       return opts.getTimeSlots ? opts.getTimeSlots(token, date) : defaultOk([] as TimeSlot[]);
+    },
+  };
+  return { port, state };
+}
+
+function createStubCache(initial?: { tasks?: Task[]; meta?: CacheMeta | null }): {
+  port: CachePort;
+  state: { tasks: Task[]; meta: CacheMeta | null; setTasksCalls: number; setMetaCalls: number };
+} {
+  const state = {
+    tasks: initial?.tasks ?? [],
+    meta: initial?.meta ?? null,
+    setTasksCalls: 0,
+    setMetaCalls: 0,
+  };
+  const port: CachePort = {
+    async getTasks() {
+      return state.tasks;
+    },
+    async setTasks(tasks) {
+      state.setTasksCalls++;
+      state.tasks = tasks;
+    },
+    async upsertTask() {},
+    async removeTask() {},
+    async getMeta() {
+      return state.meta;
+    },
+    async setMeta(meta) {
+      state.setMetaCalls++;
+      state.meta = meta;
+    },
+    async saveShortIdMap() {},
+    async resolveShortId() {
+      return null;
+    },
+    async enqueuePending() {},
+    async getPending() {
+      return [];
+    },
+    async removePending() {},
+    async clearAll() {},
+    getCacheDir() {
+      return "/tmp/test-cache";
     },
   };
   return { port, state };
@@ -353,6 +398,80 @@ describe("TaskQueryService", () => {
 
       // Then: null is returned
       expect(task).toBeNull();
+    });
+  });
+
+  describe("cache integration", () => {
+    test("cache hit within TTL → no API call", async () => {
+      const cachedTasks = [makeTask({ id: "cached-1" }), makeTask({ id: "cached-2" })];
+      const { port: cache } = createStubCache({
+        tasks: cachedTasks,
+        meta: { syncToken: "st1", lastSyncAt: new Date().toISOString(), itemCount: 2 },
+      });
+      const { port: http, state: httpState } = createStubHttp();
+      const service = new TaskQueryService({
+        auth: buildAuth(),
+        http,
+        logger: createLogger(),
+        cache,
+        cacheTtlSeconds: 30,
+      });
+
+      const tasks = await service.listTasks();
+
+      expect(httpState.calls.filter((c) => c.method === "getTasks")).toHaveLength(0);
+      expect(tasks.map((t) => t.id)).toEqual(["cached-1", "cached-2"]);
+    });
+
+    test("cache expired → API call with syncToken", async () => {
+      const oldTasks = [makeTask({ id: "old-1" })];
+      const { port: cache, state: cacheState } = createStubCache({
+        tasks: oldTasks,
+        meta: { syncToken: "prev-token", lastSyncAt: new Date(Date.now() - 60_000).toISOString(), itemCount: 1 },
+      });
+      const { port: http, state: httpState } = createStubHttp({
+        async getTasks(_token, _params) {
+          return {
+            success: true,
+            message: null,
+            data: [makeTask({ id: "new-2" })],
+          };
+        },
+      });
+      const service = new TaskQueryService({
+        auth: buildAuth(),
+        http,
+        logger: createLogger(),
+        cache,
+        cacheTtlSeconds: 30,
+      });
+
+      const tasks = await service.listTasks();
+
+      expect(httpState.calls.filter((c) => c.method === "getTasks")).toHaveLength(1);
+      const callArgs = httpState.calls[0].args[1] as ListTasksParams;
+      expect(callArgs.sync_token).toBe("prev-token");
+      expect(tasks.map((t) => t.id)).toContain("old-1");
+      expect(tasks.map((t) => t.id)).toContain("new-2");
+      expect(cacheState.setTasksCalls).toBe(1);
+    });
+
+    test("no cache injected → full fetch (backward compat)", async () => {
+      const { port: http, state: httpState } = createStubHttp({
+        async getTasks() {
+          return {
+            success: true,
+            message: null,
+            data: [makeTask({ id: "full-1" })],
+          };
+        },
+      });
+      const service = new TaskQueryService({ auth: buildAuth(), http, logger: createLogger() });
+
+      const tasks = await service.listTasks();
+
+      expect(httpState.calls.filter((c) => c.method === "getTasks")).toHaveLength(1);
+      expect(tasks.map((t) => t.id)).toEqual(["full-1"]);
     });
   });
 

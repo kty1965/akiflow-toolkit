@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
+import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
 import type { Calendar, CalendarEvent, Label, Tag, Task, TaskQueryOptions } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
@@ -27,12 +28,73 @@ export interface TaskQueryServiceDeps {
   auth: AuthService;
   http: AkiflowHttpPort;
   logger: LoggerPort;
+  cache?: CachePort;
+  cacheTtlSeconds?: number;
 }
 
 export class TaskQueryService {
   constructor(private readonly deps: TaskQueryServiceDeps) {}
 
   async listTasks(options: TaskQueryOptions = {}): Promise<Task[]> {
+    const { cache } = this.deps;
+    if (cache) {
+      return this.listTasksWithCache(cache, options);
+    }
+    return this.fullFetch(options);
+  }
+
+  private async listTasksWithCache(cache: CachePort, options: TaskQueryOptions): Promise<Task[]> {
+    const ttl = (this.deps.cacheTtlSeconds ?? 30) * 1000;
+    const meta = await cache.getMeta();
+
+    if (meta?.lastSyncAt) {
+      const age = Date.now() - new Date(meta.lastSyncAt).getTime();
+      if (age < ttl) {
+        const cached = await cache.getTasks();
+        return applyFilters(cached, options);
+      }
+    }
+
+    const savedSyncToken = meta?.syncToken;
+    const collected: Task[] = savedSyncToken ? await cache.getTasks() : [];
+    let syncToken: string | undefined = savedSyncToken;
+
+    do {
+      const res = await withRetry(
+        () =>
+          this.deps.auth.withAuth((token) =>
+            this.deps.http.getTasks(token, {
+              limit: options.limit ?? LIST_PAGE_SIZE,
+              sync_token: syncToken,
+            }),
+          ),
+        READ_RETRY_POLICY,
+      );
+
+      if (savedSyncToken) {
+        for (const task of res.data) {
+          const idx = collected.findIndex((t) => t.id === task.id);
+          if (idx >= 0) collected[idx] = task;
+          else collected.push(task);
+        }
+      } else {
+        collected.push(...res.data);
+      }
+
+      syncToken = res.has_next_page && res.sync_token ? res.sync_token : undefined;
+    } while (syncToken);
+
+    await cache.setTasks(collected);
+    await cache.setMeta({
+      syncToken: syncToken ?? meta?.syncToken,
+      lastSyncAt: new Date().toISOString(),
+      itemCount: collected.length,
+    });
+
+    return applyFilters(collected, options);
+  }
+
+  private async fullFetch(options: TaskQueryOptions): Promise<Task[]> {
     const collected: Task[] = [];
     let syncToken: string | undefined;
 
