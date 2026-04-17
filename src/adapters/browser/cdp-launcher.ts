@@ -5,8 +5,7 @@
 // responses. No Puppeteer dependency — pure node:child_process + WebSocket.
 // ---------------------------------------------------------------------------
 
-import { spawn } from "node:child_process";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { BrowserDataError } from "../../core/errors/index.ts";
 import type { LoggerPort } from "../../core/ports/logger-port.ts";

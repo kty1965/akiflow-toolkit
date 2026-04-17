@@ -4,8 +4,8 @@ import type {
   BrowserDataPort,
   CachePort,
   ConfigPort,
-  LogLevel,
   LoggerPort,
+  LogLevel,
   TaskPort,
 } from "../../../core/ports/index.ts";
 

@@ -6,7 +6,7 @@ import { AuthError, NetworkError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
 import type { CreateTaskInput, UpdateTaskInput } from "../../../core/services/task-command-service.ts";
 import type { Task, TaskQueryOptions } from "../../../core/types.ts";
-import { type TaskToolsDeps, registerTaskTools } from "../../../mcp/tools/tasks.ts";
+import { registerTaskTools, type TaskToolsDeps } from "../../../mcp/tools/tasks.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles

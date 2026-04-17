@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type CliWriter,
   type CompletionCommandComponents,
-  USAGE_MESSAGE,
   createCompletionCommand,
   generateCompletionScript,
+  USAGE_MESSAGE,
 } from "../../../cli/commands/completion.ts";
 import { ValidationError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";

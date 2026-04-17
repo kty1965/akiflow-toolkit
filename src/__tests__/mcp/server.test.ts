@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type AppComponents, composeApp } from "../../composition.ts";
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION, buildMcpServer } from "../../mcp/server.ts";
+import { buildMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "../../mcp/server.ts";
 
 describe("MCP server core", () => {
   let tempDir: string;

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   type CliWriter,
-  type ProjectCommandComponents,
-  type ProjectQueryApi,
   createProjectCommand,
   formatLabelsText,
+  type ProjectCommandComponents,
+  type ProjectQueryApi,
   runAdd,
   runDelete,
   runLs,
@@ -21,9 +21,10 @@ function makeLabel(overrides: Partial<Label> = {}): Label {
   };
 }
 
-function createFakeTaskQuery(overrides?: {
-  getLabels?: () => Promise<Label[]>;
-}): { service: ProjectQueryApi; calls: { getLabels: number } } {
+function createFakeTaskQuery(overrides?: { getLabels?: () => Promise<Label[]> }): {
+  service: ProjectQueryApi;
+  calls: { getLabels: number };
+} {
   const calls = { getLabels: 0 };
   const service: ProjectQueryApi = {
     async getLabels() {

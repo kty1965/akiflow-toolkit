@@ -119,7 +119,7 @@ export class ChromeCookieReader implements BrowserDataPort {
 
 // Re-export helpers for testing
 export {
-  deriveKey as _deriveKey,
   decryptCookieValue as _decryptCookieValue,
+  deriveKey as _deriveKey,
   removePkcs7Padding as _removePkcs7Padding,
 };

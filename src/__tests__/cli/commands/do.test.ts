@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   type CliWriter,
+  createDoCommand,
   type DoCommandComponents,
+  resolveInputs,
   type TaskCache,
   type TaskCompleteApi,
-  createDoCommand,
-  resolveInputs,
 } from "../../../cli/commands/do.ts";
 import { NotFoundError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";

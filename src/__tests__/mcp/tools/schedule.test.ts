@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AuthError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
 import type { Task } from "../../../core/types.ts";
-import { type ScheduleToolsDeps, registerScheduleTools } from "../../../mcp/tools/schedule.ts";
+import { registerScheduleTools, type ScheduleToolsDeps } from "../../../mcp/tools/schedule.ts";
 
 const silentLogger: LoggerPort = {
   trace: () => {},

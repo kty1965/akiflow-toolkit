@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type CliWriter,
-  type TaskCache,
-  type TaskCommandComponents,
-  type TaskWriteApi,
   createDeleteCommand,
   createEditCommand,
   createMoveCommand,
@@ -12,6 +9,9 @@ import {
   createTaskCommand,
   parseDateFlag,
   resolveInput,
+  type TaskCache,
+  type TaskCommandComponents,
+  type TaskWriteApi,
   validateRecurrence,
 } from "../../../cli/commands/task.ts";
 import { NotFoundError, ValidationError } from "../../../core/errors/index.ts";

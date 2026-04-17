@@ -6,10 +6,10 @@ import { IndexedDbReader } from "./indexeddb-reader.ts";
 import { SafariCookieReader } from "./safari-cookie.ts";
 
 export { detectBrowsers } from "./browser-detector.ts";
-export { IndexedDbReader } from "./indexeddb-reader.ts";
-export { ChromeCookieReader } from "./chrome-cookie.ts";
-export { SafariCookieReader, parseBinaryCookies, type SafariCookie } from "./safari-cookie.ts";
 export { CdpBrowserLogin, type CdpBrowserLoginOptions, parseTokenBody } from "./cdp-launcher.ts";
+export { ChromeCookieReader } from "./chrome-cookie.ts";
+export { IndexedDbReader } from "./indexeddb-reader.ts";
+export { parseBinaryCookies, type SafariCookie, SafariCookieReader } from "./safari-cookie.ts";
 
 /**
  * Create browser data readers for all detected browsers.

@@ -4,10 +4,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CalendarEvent } from "../../../core/types.ts";
 import {
-  type CalendarToolsDeps,
-  GET_EVENTS_TOOL_NAME,
   addDaysIso,
+  type CalendarToolsDeps,
   formatEventsForLLM,
+  GET_EVENTS_TOOL_NAME,
   registerCalendarTools,
   todayIso,
 } from "../../../mcp/tools/calendar.ts";
