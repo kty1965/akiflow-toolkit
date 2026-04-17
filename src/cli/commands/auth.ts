@@ -4,7 +4,7 @@
 //           `af auth refresh`, `af auth --manual`
 // ---------------------------------------------------------------------------
 
-import { type Interface as ReadlineInterface, createInterface } from "node:readline";
+import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import { defineCommand } from "citty";
 import { ValidationError } from "../../core/errors/index.ts";
 import type { LoggerPort } from "../../core/ports/logger-port.ts";

@@ -4,7 +4,7 @@
 // and MCP JSON-RPC. Masks JWT/refresh_token patterns in context.
 // ---------------------------------------------------------------------------
 
-import type { LogLevel, LoggerPort } from "../../core/ports/logger-port.ts";
+import type { LoggerPort, LogLevel } from "../../core/ports/logger-port.ts";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   trace: 10,

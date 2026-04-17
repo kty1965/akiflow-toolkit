@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { StderrLogger } from "../../../adapters/observability/stderr-logger.ts";
 
 // ---------------------------------------------------------------------------

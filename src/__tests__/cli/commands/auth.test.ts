@@ -3,11 +3,11 @@ import {
   type AuthCommandComponents,
   type AuthServiceApi,
   type CliWriter,
-  type StdinReader,
   createAuthCommand,
   formatStatus,
   logoutCommand,
   refreshCommand,
+  type StdinReader,
   statusCommand,
 } from "../../../cli/commands/auth.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";

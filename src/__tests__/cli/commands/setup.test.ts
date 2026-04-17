@@ -6,13 +6,13 @@ import {
   AKIFLOW_MCP_ENTRY,
   type CliWriter,
   type ConfirmPrompt,
-  type SetupAuthService,
-  type SetupCommandComponents,
   createSetupCommand,
   formatAuthStatus,
   registerMcpServer,
   resolveSetupTarget,
   runSetupTarget,
+  type SetupAuthService,
+  type SetupCommandComponents,
 } from "../../../cli/commands/setup.ts";
 import { ValidationError } from "../../../core/errors/index.ts";
 import type { LoggerPort } from "../../../core/ports/logger-port.ts";
