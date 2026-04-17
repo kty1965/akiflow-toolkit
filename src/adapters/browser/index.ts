@@ -3,28 +3,35 @@ import type { LoggerPort } from "../../core/ports/logger-port.ts";
 import { detectBrowsers } from "./browser-detector.ts";
 import { ChromeCookieReader } from "./chrome-cookie.ts";
 import { IndexedDbReader } from "./indexeddb-reader.ts";
+import { SafariCookieReader } from "./safari-cookie.ts";
 
 export { detectBrowsers } from "./browser-detector.ts";
 export { IndexedDbReader } from "./indexeddb-reader.ts";
 export { ChromeCookieReader } from "./chrome-cookie.ts";
+export { SafariCookieReader, parseBinaryCookies, type SafariCookie } from "./safari-cookie.ts";
 export { CdpBrowserLogin, type CdpBrowserLoginOptions, parseTokenBody } from "./cdp-launcher.ts";
 
 /**
  * Create browser data readers for all detected browsers.
- * IndexedDB readers come first (Method 1 priority), then Chrome cookie readers (Method 2 fallback).
+ * Order: Chromium IndexedDB (no keychain) → Chromium cookies (keychain) → Safari cookies (macOS only).
  */
 export function createBrowserReaders(logger: LoggerPort): BrowserDataPort[] {
   const profiles = detectBrowsers();
   const readers: BrowserDataPort[] = [];
 
-  // Method 1: IndexedDB (preferred — no keychain prompt)
+  // Tier A: Chromium IndexedDB (preferred — no keychain prompt)
   for (const profile of profiles) {
     readers.push(new IndexedDbReader(profile, logger));
   }
 
-  // Method 2: Chrome cookies (requires keychain access)
+  // Tier B: Chromium cookies (requires keychain access)
   for (const profile of profiles) {
     readers.push(new ChromeCookieReader(profile, logger));
+  }
+
+  // Tier C: Safari cookies (macOS only — reader self-guards on non-darwin).
+  if (process.platform === "darwin") {
+    readers.push(new SafariCookieReader(logger));
   }
 
   return readers;
