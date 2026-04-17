@@ -533,4 +533,38 @@ describe("AuthService", () => {
       expect(storage.state.current).toBeNull();
     });
   });
+
+  describe("refresh mutex", () => {
+    test("concurrent withAuth calls that both 401 result in only 1 refresh call", async () => {
+      let refreshCallCount = 0;
+      const refreshFn = async (_token: string): Promise<TokenRefreshResponse> => {
+        refreshCallCount++;
+        await new Promise((r) => setTimeout(r, 50));
+        return {
+          token_type: "Bearer",
+          expires_in: 3600,
+          access_token: "new_access",
+          refresh_token: "new_refresh",
+        };
+      };
+      const storage = createStorage(makeCredentials());
+      const service = new AuthService({
+        storage: storage.port,
+        browserReaders: [],
+        refreshAccessToken: refreshFn,
+        logger: createLogger(),
+      });
+
+      const alwaysFail401First = async (token: string): Promise<string> => {
+        if (token === "stored_access_token") {
+          throw new NetworkError("unauthorized", 401);
+        }
+        return `ok:${token}`;
+      };
+
+      await Promise.all([service.withAuth(alwaysFail401First), service.withAuth(alwaysFail401First)]);
+
+      expect(refreshCallCount).toBe(1);
+    });
+  });
 });

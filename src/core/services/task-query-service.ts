@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
+import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
 import type { Calendar, CalendarEvent, Label, Tag, Task, TaskQueryOptions } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
@@ -27,14 +28,47 @@ export interface TaskQueryServiceDeps {
   auth: AuthService;
   http: AkiflowHttpPort;
   logger: LoggerPort;
+  cache?: CachePort;
+  cacheTtlSeconds?: number;
 }
 
 export class TaskQueryService {
   constructor(private readonly deps: TaskQueryServiceDeps) {}
 
   async listTasks(options: TaskQueryOptions = {}): Promise<Task[]> {
+    const cache = this.deps.cache;
+    if (cache) {
+      const meta = await cache.getMeta();
+      if (meta && this.isCacheValid(meta)) {
+        const cached = await cache.getTasks();
+        return applyFilters(cached, options);
+      }
+      const result = await this.fetchAllTasks(options, meta?.syncToken);
+      await cache.setTasks(result.items);
+      await cache.setMeta({
+        syncToken: result.lastSyncToken,
+        lastSyncAt: new Date().toISOString(),
+        itemCount: result.items.length,
+      });
+      return applyFilters(result.items, options);
+    }
+
+    const result = await this.fetchAllTasks(options);
+    return applyFilters(result.items, options);
+  }
+
+  private isCacheValid(meta: { lastSyncAt: string }): boolean {
+    const ttl = (this.deps.cacheTtlSeconds ?? 30) * 1000;
+    return Date.now() - new Date(meta.lastSyncAt).getTime() < ttl;
+  }
+
+  private async fetchAllTasks(
+    options: TaskQueryOptions,
+    initialSyncToken?: string,
+  ): Promise<{ items: Task[]; lastSyncToken?: string }> {
     const collected: Task[] = [];
-    let syncToken: string | undefined;
+    let syncToken: string | undefined = initialSyncToken;
+    let lastSyncToken: string | undefined;
 
     do {
       const res = await withRetry(
@@ -49,11 +83,11 @@ export class TaskQueryService {
       );
 
       collected.push(...res.data);
-
+      lastSyncToken = res.sync_token ?? lastSyncToken;
       syncToken = res.has_next_page && res.sync_token ? res.sync_token : undefined;
     } while (syncToken);
 
-    return applyFilters(collected, options);
+    return { items: collected, lastSyncToken };
   }
 
   async getTodayTasks(): Promise<Task[]> {
