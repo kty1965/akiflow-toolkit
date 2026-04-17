@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+export {};
 
 if (process.argv.includes("--mcp")) {
   // MCP mode: stdout reserved for JSON-RPC. All logging goes to stderr (ADR-0009 / H2).
