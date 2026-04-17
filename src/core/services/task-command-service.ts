@@ -35,6 +35,7 @@ export interface UpdateTaskInput {
   datetime?: string | null;
   duration?: number | null;
   projectId?: string | null;
+  recurrence?: string | null;
 }
 
 export interface TaskCommandServiceDeps {
@@ -70,6 +71,7 @@ export class TaskCommandService {
     if (patch.title !== undefined) payload.title = patch.title;
     if (patch.date !== undefined) payload.date = patch.date;
     if (patch.datetime !== undefined) payload.datetime = patch.datetime;
+    if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence;
 
     return this.patchSingle(payload, "updateTask");
   }
