@@ -1,3 +1,11 @@
+## [1.0.4](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.3...v1.0.4) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** revert oidc trusted publishing ([#49](https://github.com/kty1965/akiflow-toolkit/issues/49)) ([db6f4ae](https://github.com/kty1965/akiflow-toolkit/commit/db6f4ae9edbe4097335ec1bc41a3f8479c2c0cca))
+* **release:** switch to npm OIDC trusted publishing ([#48](https://github.com/kty1965/akiflow-toolkit/issues/48)) ([39eac79](https://github.com/kty1965/akiflow-toolkit/commit/39eac79d3651c703de8dace8bcdb398fe45f01d4))
+
 ## [1.0.3](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.2...v1.0.3) (2026-04-19)
 
 
