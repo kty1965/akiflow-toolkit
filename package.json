@@ -3,15 +3,15 @@
   "version": "0.0.0-development",
   "description": "Unofficial Akiflow CLI + MCP server toolkit for AI-powered task management",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/af.js",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/af.js"
   },
   "bin": {
-    "af": "./dist/index.js"
+    "af": "./dist/af.js"
   },
   "files": [
-    "dist/",
+    "dist/af.js",
     "README.md",
     "LICENSE"
   ],
@@ -21,7 +21,7 @@
   },
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "build": "bun build ./src/index.ts --outdir dist --target node && bun run scripts/post-build.ts",
+    "build": "bun build ./src/index.ts --outfile dist/af.js --target node && bun run scripts/post-build.ts",
     "build:binary": "bun run build:darwin-arm64 && bun run build:darwin-x64 && bun run build:linux-x64 && bun run build:linux-arm64",
     "build:darwin-arm64": "bun build --compile --minify src/index.ts --outfile dist/af-darwin-arm64",
     "build:darwin-x64": "bun build --compile --minify --target=bun-darwin-x64 src/index.ts --outfile dist/af-darwin-x64",

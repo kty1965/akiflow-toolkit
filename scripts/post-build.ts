@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 // uses `#!/usr/bin/env bun` which is fine for `bun run` but breaks CDN
 // installs where only Node is available.
 
-const cliPath = "dist/index.js";
+const cliPath = "dist/af.js";
 const NODE_SHEBANG = "#!/usr/bin/env node";
 const BUN_SHEBANG = "#!/usr/bin/env bun";
 
@@ -23,7 +23,7 @@ if (content.startsWith(NODE_SHEBANG)) {
   console.log("[post-build] replaced bun shebang with node shebang");
 } else if (!content.startsWith("#!/")) {
   writeFileSync(cliPath, `${NODE_SHEBANG}\n${content}`);
-  console.log("[post-build] shebang prepended to dist/index.js");
+  console.log("[post-build] shebang prepended to dist/af.js");
 } else {
   const firstLine = content.split("\n", 1)[0];
   console.warn(`[post-build] unexpected shebang '${firstLine}' — leaving untouched`);
