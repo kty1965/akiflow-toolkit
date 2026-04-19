@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.2...v1.0.3) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** trigger v1.0.3 publish after npm 2fa adjustment ([#47](https://github.com/kty1965/akiflow-toolkit/issues/47)) ([502dd81](https://github.com/kty1965/akiflow-toolkit/commit/502dd811aaa648c02dae0f1a3494eb9d06c182c4))
+
 ## [1.0.2](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.1...v1.0.2) (2026-04-19)
 
 
