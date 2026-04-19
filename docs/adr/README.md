@@ -45,6 +45,7 @@ tags:
 | [ADR-0003](./ADR-0003-akiflow-authentication-strategy.md) | Akiflow 인증 전략 | accepted | 4단계 계층 + 3계층 복구 | TASK-03~06, 18, 19 |
 | [ADR-0004](./ADR-0004-release-automation-semantic-release.md) | 릴리즈 자동화 | accepted | semantic-release | TASK-01, TASK-20 |
 | [ADR-0005](./ADR-0005-git-hooks-pre-commit.md) | Git 훅 관리 | accepted | Python pre-commit | TASK-01, TASK-20, TASK-22 |
+| [ADR-0021](./ADR-0021-bun-only-distribution.md) | 배포 전략 — Bun-Only | accepted | npm 패키지 런타임 타겟 / sqlite / 패키지 크기 | v1.0.4 publish 재발 방지 |
 
 ### Tier 1: 코드 아키텍처 (핵심 설계)
 
@@ -81,6 +82,7 @@ flowchart TB
         ADR3[ADR-0003<br/>Auth Strategy]
         ADR4[ADR-0004<br/>semantic-release]
         ADR5[ADR-0005<br/>pre-commit]
+        ADR21[ADR-0021<br/>Bun-only dist]
     end
 
     subgraph Tier1["Tier 1: 코드 아키텍처"]
@@ -106,6 +108,9 @@ flowchart TB
     ADR1 --> ADR3
     ADR1 -.-> ADR4
     ADR4 --> ADR5
+    ADR1 --> ADR21
+    ADR3 -.-> ADR21
+    ADR4 -.-> ADR21
     ADR2 --> ADR3
     ADR2 --> ADR6
     ADR3 --> ADR6
@@ -126,6 +131,9 @@ flowchart TB
 **주요 연결 관계:**
 - **ADR-0001 → ADR-0002**: Bun이 `--compile` 지원하므로 단일 진입점 바이너리화 가능
 - **ADR-0001 → ADR-0003**: Bun의 `bun:sqlite` 내장으로 Chrome 쿠키 DB 접근
+- **ADR-0001 → ADR-0021**: 개발 런타임이 Bun이라는 전제에서 "배포 아티팩트도 Bun 전용"으로 확장
+- **ADR-0003 -.-> ADR-0021**: Chrome cookie(`bun:sqlite`) 의존성이 ADR-0021 결정의 핵심 제약
+- **ADR-0004 -.-> ADR-0021**: semantic-release 파이프라인이 ADR-0021의 최종 아티팩트(Bun 번들)를 게시
 - **ADR-0002 → ADR-0006**: 단일 진입점이 core 계층 공유를 전제로 함
 - **ADR-0006 → ADR-0011**: Port 구현체를 Composition Root에서 수동 주입
 - **ADR-0006 → ADR-0007**: MCP Tool은 core Service를 호출하는 primary adapter
@@ -202,6 +210,7 @@ ADR-{번호:4자리}-{kebab-case-주제}.md
 - **ADR-0018 (proposed)**: Observability — metrics/tracing 도입 시점
 - **ADR-0019 (proposed)**: 플러그인/확장 메커니즘 (custom auth source 등)
 - **ADR-0020 (proposed)**: 다국어 지원(i18n) 전략
+- ~~ADR-0021 (proposed)~~: accepted로 전환 → [ADR-0021: 배포 전략 — Bun-Only](./ADR-0021-bun-only-distribution.md)
 
 ## 7. References
 
