@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.0...v1.0.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** normalize repository url for semantic-release github plugin ([#44](https://github.com/kty1965/akiflow-toolkit/issues/44)) ([7a0e5e3](https://github.com/kty1965/akiflow-toolkit/commit/7a0e5e33a982ad38c8a3b230e8c3d317a987945f))
+
 # 1.0.0 (2026-04-19)
 
 
