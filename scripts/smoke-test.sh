@@ -3,9 +3,9 @@ set -euo pipefail
 
 echo "=== Phase A: Build artifacts ==="
 bun run build
-test -f dist/index.js
-head -n 1 dist/index.js | grep -q "^#!/usr/bin/env node$"
-echo "✓ dist/index.js exists with node shebang"
+test -f dist/af.js
+head -n 1 dist/af.js | grep -q "^#!/usr/bin/env node$"
+echo "✓ dist/af.js exists with node shebang"
 
 echo "=== Phase B: npm pack ==="
 npm pack --dry-run 2>&1 | head -20

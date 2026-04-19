@@ -32,20 +32,32 @@ tags:
 
 npm Trusted Publisher 설정은 **패키지가 이미 존재해야** 가능하므로, 최초 한 번은 토큰 방식이 필수.
 
-### 1.1 npm Granular Access Token 발급
+### 1.1 npm Access Token 발급
 
-1. https://www.npmjs.com 로그인 (없으면 가입)
+#### ⚠️ Token 종류 선택
+
+CI 환경에서는 **Classic Automation Token**을 강력 권장. Granular Token은 2FA가 켜져 있으면 publish 단계에서 **403 Forbidden**이 발생한다 (실제로 첫 publish 시도에서 확인됨).
+
+| 종류 | 2FA bypass | 권장 용도 |
+|------|-----------|----------|
+| **Classic > Automation** | ✅ 자동 | **CI/CD 1순위** |
+| Granular Access Token | ⚠️ 2FA 요구 설정이 켜져 있으면 PUT에서 403 | 세밀한 scope 제어가 필요할 때만 |
+| Classic > Publish | ❌ OTP 필요 | 대화형 publish만 |
+
+#### Classic Automation Token (권장) 발급
+
+1. https://www.npmjs.com 로그인
 2. 우상단 아바타 → **Access Tokens**
-3. **Generate New Token → Granular Access Token**
-4. 폼:
-   | 필드 | 값 |
-   |------|-----|
-   | Token name | `akiflow-toolkit-ci-bootstrap` |
-   | Expiration | 90 일 (OIDC 전환 후 폐기 예정이므로 짧게) |
-   | Packages and scopes > Permissions | **Read and write** |
-   | Select packages | **All packages** (첫 publish 전이라 `akiflow-toolkit`을 선택 불가) |
-   | 2FA enforcement | Required 유지 |
-5. **Generate Token** → 표시되는 토큰을 즉시 복사 (재확인 불가)
+3. **Generate New Token → Classic Token**
+4. **Automation** 라디오 선택 · name `akiflow-toolkit-ci-bootstrap`
+5. **Generate Token** → 값 복사 (재확인 불가)
+
+#### (대안) Granular Token 발급 시 주의
+
+Granular를 쓰려면 반드시:
+- Permissions: **Read and write**
+- Select packages: **All packages** (첫 publish 전이라 `akiflow-toolkit` 이름으로는 선택 불가)
+- **"Require two-factor authentication to publish" 체크 해제** ← CI용 필수
 
 ### 1.2 GitHub repo secret 등록
 
@@ -144,7 +156,9 @@ flowchart TD
 |------|------|------|
 | `ENONPMTOKEN` | secret 미등록 | 1.2 단계 수행 |
 | `ENEEDAUTH` | token 만료 또는 권한 부족 | 토큰 재발급 + 권한 `Read and write` 확인 |
-| `E403 You do not have permission to publish` | 패키지 name 이미 점유됨 or 2FA 요구됨 | `package.json` name 변경 또는 2FA 예외 (automation token 전환) |
+| `E403 You may not perform that action with these credentials` | Granular token 2FA 요구, 이메일 미인증, Read-only | **Classic Automation Token으로 교체**가 가장 확실한 해결 |
+| `bin[…] was invalid and removed` | bin 값 경로가 tarball 내 파일과 불일치/부적합 | bin name과 파일명 일치 (`dist/af.js`), `files` 배열 명시 |
+| tarball 128 MB 이상 | `files: ["dist/"]`가 platform binary까지 포함 | `files: ["dist/af.js", ...]`로 좁히고 binary는 GitHub Releases로만 |
 | `EPUBLISHCONFLICT` | 같은 버전 재publish 시도 | 다음 commit으로 버전 올림 (semantic-release가 자동) |
 | Provenance 배지 안 뜸 | OIDC 경로 안 탐 | `NPM_TOKEN` 완전히 제거됐는지 확인 + `id-token: write` 유지 |
 
