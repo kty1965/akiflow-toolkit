@@ -2,12 +2,12 @@
 // af add — create a new task (ADR-0010 command side, ADR-0009 output policy)
 // ---------------------------------------------------------------------------
 
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { CreateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task } from "@core/types.ts";
 import * as chrono from "chrono-node";
 import { defineCommand } from "citty";
-import { ValidationError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { CreateTaskInput } from "../../core/services/task-command-service.ts";
-import type { Task } from "../../core/types.ts";
 import { handleCliError } from "../app.ts";
 
 export interface TaskCommandApi {

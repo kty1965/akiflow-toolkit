@@ -4,15 +4,15 @@
 // Accepts short IDs (1, 2, 3) from `af ls`, UUIDs, or 6+ char UUID prefixes.
 // ---------------------------------------------------------------------------
 
+import { NotFoundError, ValidationError } from "@core/errors/index.ts";
+import type { CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task } from "@core/types.ts";
+import { resolveTaskId } from "@core/utils/resolve-task-id.ts";
 import * as chrono from "chrono-node";
 import { defineCommand } from "citty";
 import { RRule } from "rrule";
-import { NotFoundError, ValidationError } from "../../core/errors/index.ts";
-import type { CachePort } from "../../core/ports/cache-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { UpdateTaskInput } from "../../core/services/task-command-service.ts";
-import type { Task } from "../../core/types.ts";
-import { resolveTaskId } from "../../core/utils/resolve-task-id.ts";
 import { handleCliError } from "../app.ts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -2,11 +2,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AppComponents, composeApp } from "@composition";
+import { buildMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "@mcp/server.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type AppComponents, composeApp } from "../../composition.ts";
-import { buildMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "../../mcp/server.ts";
 
 describe("MCP server core", () => {
   let tempDir: string;
@@ -47,7 +47,7 @@ describe("MCP server core", () => {
       expect(MCP_SERVER_VERSION).toBe("0.0.0-development");
     });
 
-    test("registers TASK-15 task and schedule tools and does not expose the old ping stub", async () => {
+    test("registers all task/schedule/calendar tools and does not expose the old ping stub", async () => {
       // Given: a fully composed server connected via in-memory transport
       const { server } = build();
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -59,15 +59,17 @@ describe("MCP server core", () => {
         const { tools } = await client.listTools();
         const names = tools.map((t) => t.name);
 
-        // Then: the 7 TASK-15 tools are registered and no ping stub remains
+        // Then: the expected tools are registered and no ping stub remains
         for (const expected of [
           "get_tasks",
           "search_tasks",
           "create_task",
           "update_task",
           "complete_task",
+          "delete_task",
           "schedule_task",
           "unschedule_task",
+          "get_free_slots",
         ]) {
           expect(names).toContain(expected);
         }

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { XdgStorage } from "../../../adapters/fs/xdg-storage.ts";
-import type { Credentials } from "../../../core/ports/storage-port.ts";
+import { XdgStorage } from "@adapters/fs/xdg-storage.ts";
+import type { Credentials } from "@core/ports/storage-port.ts";
 
 const sampleCredentials: Credentials = {
   accessToken: "ak_test_access_token_123",

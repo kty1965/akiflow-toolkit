@@ -4,10 +4,10 @@
 // per ADR-0008 (exit code mapping).
 // ---------------------------------------------------------------------------
 
+import type { AppComponents } from "@composition";
+import { AkiflowError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 import { defineCommand, runMain } from "citty";
-import type { AppComponents } from "../composition.ts";
-import { AkiflowError } from "../core/errors/index.ts";
-import type { LoggerPort } from "../core/ports/logger-port.ts";
 
 export function buildCli(components: AppComponents) {
   return defineCommand({

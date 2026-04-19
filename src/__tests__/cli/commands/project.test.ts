@@ -8,9 +8,9 @@ import {
   runAdd,
   runDelete,
   runLs,
-} from "../../../cli/commands/project.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { Label } from "../../../core/types.ts";
+} from "@cli/commands/project.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Label } from "@core/types.ts";
 
 function makeLabel(overrides: Partial<Label> = {}): Label {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CreateTaskPayload, Credentials, Task, TaskQueryOptions, TaskStatus } from "../../core/types.ts";
+import type { CreateTaskPayload, Credentials, Task, TaskQueryOptions, TaskStatus } from "@core/types.ts";
 
 describe("core/types", () => {
   describe("CreateTaskPayload", () => {

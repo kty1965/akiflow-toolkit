@@ -9,9 +9,9 @@ import {
   refreshCommand,
   type StdinReader,
   statusCommand,
-} from "../../../cli/commands/auth.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { AuthStatus, Credentials } from "../../../core/types.ts";
+} from "@cli/commands/auth.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { AuthStatus, Credentials } from "@core/types.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles — structurally typed against CliWriter/AuthServiceApi

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { NetworkError } from "../../../core/errors/index.ts";
-import type { AkiflowHttpPort, ListTasksParams } from "../../../core/ports/akiflow-http-port.ts";
-import type { CacheMeta, CachePort } from "../../../core/ports/cache-port.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { StoragePort } from "../../../core/ports/storage-port.ts";
-import { AuthService } from "../../../core/services/auth-service.ts";
-import { TaskQueryService } from "../../../core/services/task-query-service.ts";
+import { NetworkError } from "@core/errors/index.ts";
+import type { AkiflowHttpPort, ListTasksParams } from "@core/ports/akiflow-http-port.ts";
+import type { CacheMeta, CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { StoragePort } from "@core/ports/storage-port.ts";
+import { AuthService } from "@core/services/auth-service.ts";
+import { TaskQueryService } from "@core/services/task-query-service.ts";
 import type {
   ApiResponse,
   Calendar,
@@ -17,7 +17,7 @@ import type {
   Task,
   TimeSlot,
   UpdateTaskPayload,
-} from "../../../core/types.ts";
+} from "@core/types.ts";
 
 function createLogger(): LoggerPort {
   return {

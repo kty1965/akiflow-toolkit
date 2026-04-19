@@ -9,6 +9,14 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "rootDir": "./src",
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@adapters/*": ["./src/adapters/*"],
+      "@mcp/*": ["./src/mcp/*"],
+      "@cli/*": ["./src/cli/*"],
+      "@config": ["./src/config.ts"],
+      "@composition": ["./src/composition.ts"]
+    },
     "types": ["bun"]
   },
   "include": ["src/**/*.ts"],

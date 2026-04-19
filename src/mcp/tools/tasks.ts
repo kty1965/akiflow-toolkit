@@ -6,12 +6,12 @@
 // handlers never throw so the MCP client gets a structured failure response.
 // ---------------------------------------------------------------------------
 
+import { AkiflowError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task, TaskQueryOptions } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AkiflowError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { CreateTaskInput, UpdateTaskInput } from "../../core/services/task-command-service.ts";
-import type { Task, TaskQueryOptions } from "../../core/types.ts";
 
 export interface TaskToolsDeps {
   taskQuery: {
@@ -22,6 +22,7 @@ export interface TaskToolsDeps {
     createTask(input: CreateTaskInput): Promise<Task>;
     updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
     completeTask(id: string): Promise<Task>;
+    deleteTask(id: string): Promise<Task>;
   };
   logger: LoggerPort;
 }
@@ -40,6 +41,7 @@ export function registerTaskTools(server: McpServer, deps: TaskToolsDeps): void 
   registerCreateTask(server, deps);
   registerUpdateTask(server, deps);
   registerCompleteTask(server, deps);
+  registerDeleteTask(server, deps);
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +318,44 @@ function registerCompleteTask(server: McpServer, deps: TaskToolsDeps): void {
         return textResult(formatSingleTask("Completed", task));
       } catch (err) {
         return toolError(err, deps, "complete_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// delete_task — destructive write (soft-delete via deleted_at)
+// ---------------------------------------------------------------------------
+
+const DeleteTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to delete"),
+} as const;
+
+function registerDeleteTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "delete_task",
+    {
+      description:
+        "Soft-delete an Akiflow task (sets deleted_at). Use when the user asks to remove or " +
+        "drop a task permanently, e.g. 'delete task X', 'remove this', or '이 태스크 삭제해줘'. " +
+        "Returns the deleted task summary. Destructive: the task disappears from active lists.\n\n" +
+        "Examples:\n" +
+        "- 'Delete task' → { id: '<uuid>' }\n" +
+        "- 'Remove the standup task' → { id: '<uuid>' }\n" +
+        "- '삭제해줘' → { id: '<uuid>' }",
+      inputSchema: DeleteTaskInputShape,
+      annotations: {
+        title: "Delete task",
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.deleteTask(args.id);
+        return textResult(formatSingleTask("Deleted", task));
+      } catch (err) {
+        return toolError(err, deps, "delete_task");
       }
     },
   );

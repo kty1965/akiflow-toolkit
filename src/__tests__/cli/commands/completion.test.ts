@@ -5,9 +5,9 @@ import {
   createCompletionCommand,
   generateCompletionScript,
   USAGE_MESSAGE,
-} from "../../../cli/commands/completion.ts";
-import { ValidationError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
+} from "@cli/commands/completion.ts";
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles

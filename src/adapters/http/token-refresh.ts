@@ -3,10 +3,10 @@
 // POST /oauth/refreshToken → TokenRefreshResponse
 // ---------------------------------------------------------------------------
 
-import { AuthExpiredError, NetworkError } from "../../core/errors/index.ts";
-import type { TokenRefreshResponse } from "../../core/types.ts";
-import { isRetryable } from "../../core/utils/is-retryable.ts";
-import { type RetryPolicy, withRetry } from "../../core/utils/retry.ts";
+import { AuthExpiredError, NetworkError } from "@core/errors/index.ts";
+import type { TokenRefreshResponse } from "@core/types.ts";
+import { isRetryable } from "@core/utils/is-retryable.ts";
+import { type RetryPolicy, withRetry } from "@core/utils/retry.ts";
 
 const TOKEN_URL = "https://web.akiflow.com/oauth/refreshToken";
 const CLIENT_ID = "10";

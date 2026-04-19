@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createCipheriv } from "node:crypto";
-import { _decryptCookieValue, _deriveKey, _removePkcs7Padding } from "../../../adapters/browser/chrome-cookie.ts";
+import { _decryptCookieValue, _deriveKey, _removePkcs7Padding } from "@adapters/browser/chrome-cookie.ts";
 
 // Chrome on macOS uses 16 bytes of 0x20 (space) as the AES-128-CBC IV
 const AES_IV = Buffer.alloc(16, 0x20);

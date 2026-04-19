@@ -8,9 +8,9 @@ import {
   type LsCommandComponents,
   type ShortIdCache,
   type TaskQueryApi,
-} from "../../../cli/commands/ls.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { Task, TaskQueryOptions } from "../../../core/types.ts";
+} from "@cli/commands/ls.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task, TaskQueryOptions } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

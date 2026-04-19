@@ -13,10 +13,10 @@ import {
   runSetupTarget,
   type SetupAuthService,
   type SetupCommandComponents,
-} from "../../../cli/commands/setup.ts";
-import { ValidationError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { AuthStatus } from "../../../core/types.ts";
+} from "@cli/commands/setup.ts";
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { AuthStatus } from "@core/types.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles

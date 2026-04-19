@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { loadConfig } from "../config.ts";
+import { loadConfig } from "@config";
 
 describe("loadConfig", () => {
   test("applies hardcoded defaults when env is empty (CLI mode)", () => {
@@ -105,5 +105,83 @@ describe("loadConfig", () => {
 
     // Then: logFormat is json
     expect(config.logFormat).toBe("json");
+  });
+
+  // -------------------------------------------------------------------------
+  // Security — base URL validation (SECURITY-AUDIT-REPORT.md S-2)
+  // Prevents MITM / credential exfiltration via a poisoned env var pointing
+  // the HTTP adapter at an attacker-controlled host.
+  // -------------------------------------------------------------------------
+
+  describe("base URL validation", () => {
+    test("accepts valid https URL and strips trailing slash", () => {
+      const config = loadConfig({
+        env: { HOME: "/home/tester", AF_API_BASE_URL: "https://api.example.com/" },
+        argv: ["bun"],
+      });
+      expect(config.apiBaseUrl).toBe("https://api.example.com");
+    });
+
+    test("rejects http:// by default", () => {
+      expect(() =>
+        loadConfig({
+          env: { HOME: "/home/tester", AF_API_BASE_URL: "http://attacker.example.com" },
+          argv: ["bun"],
+        }),
+      ).toThrow(/scheme must be https/);
+    });
+
+    test("rejects non-URL garbage", () => {
+      expect(() =>
+        loadConfig({
+          env: { HOME: "/home/tester", AF_AUTH_BASE_URL: "not a url at all" },
+          argv: ["bun"],
+        }),
+      ).toThrow(/not a parseable URL/);
+    });
+
+    test("rejects other schemes (file:, javascript:, data:)", () => {
+      for (const bad of ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,x"]) {
+        expect(() =>
+          loadConfig({
+            env: { HOME: "/home/tester", AF_API_BASE_URL: bad },
+            argv: ["bun"],
+          }),
+        ).toThrow(/scheme must be https/);
+      }
+    });
+
+    test("AF_ALLOW_INSECURE_BASE_URL=1 opts into http:// for local dev", () => {
+      const config = loadConfig({
+        env: {
+          HOME: "/home/tester",
+          AF_API_BASE_URL: "http://localhost:4000",
+          AF_ALLOW_INSECURE_BASE_URL: "1",
+        },
+        argv: ["bun"],
+      });
+      expect(config.apiBaseUrl).toBe("http://localhost:4000");
+    });
+
+    test("AF_ALLOW_INSECURE_BASE_URL=1 still rejects file:/javascript:", () => {
+      expect(() =>
+        loadConfig({
+          env: {
+            HOME: "/home/tester",
+            AF_API_BASE_URL: "file:///etc/passwd",
+            AF_ALLOW_INSECURE_BASE_URL: "1",
+          },
+          argv: ["bun"],
+        }),
+      ).toThrow(/scheme must be https/);
+    });
+
+    test("empty string AF_API_BASE_URL falls back to default (not thrown)", () => {
+      const config = loadConfig({
+        env: { HOME: "/home/tester", AF_API_BASE_URL: "" },
+        argv: ["bun"],
+      });
+      expect(config.apiBaseUrl).toBe("https://api.akiflow.com");
+    });
   });
 });

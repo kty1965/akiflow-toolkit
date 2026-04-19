@@ -1,6 +1,6 @@
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { StderrLogger } from "../../../adapters/observability/stderr-logger.ts";
+import { StderrLogger } from "@adapters/observability/stderr-logger.ts";
 
 // ---------------------------------------------------------------------------
 // Test helpers — capture process.stderr.write via spyOn (no type casts).
@@ -155,5 +155,41 @@ describe("StderrLogger", () => {
     expect(parsed.err).toBeDefined();
     expect(parsed.err.message).toBe("kaboom");
     expect(parsed.level).toBe("error");
+  });
+
+  // -------------------------------------------------------------------------
+  // Security (SECURITY-AUDIT-REPORT S-5): defense-in-depth — strings
+  // dominated by control bytes (decrypted binary secrets escaping MASK_KEYS)
+  // must never hit stderr verbatim.
+  // -------------------------------------------------------------------------
+
+  describe("binary/control-char collapsing", () => {
+    test("collapses a string with >10% control characters", () => {
+      // Given: a string with ~30% ASCII control bytes — representative of a
+      // decrypted AES block leaking through string interpolation.
+      const binarySecret = "payload-" + "\x01\x02\x03\x04\x05\x06\x07\x08\x0e\x0f\x10\x11" + "-end";
+      const logger = new StderrLogger("info", false);
+
+      // When: the secret ends up in a log message via string interpolation
+      logger.info(`Bearer ${binarySecret}`);
+
+      // Then: the raw bytes are replaced with a sanitized marker
+      expect(captured.lines[0]).toContain("<binary:");
+      expect(captured.lines[0]).not.toContain(binarySecret);
+    });
+
+    test("leaves legitimate human-readable log lines untouched", () => {
+      const logger = new StderrLogger("info", false);
+      const msg = "auth refreshed — source=indexeddb expiresAt=2026-04-19T13:28:30.768Z";
+      logger.info(msg);
+      expect(captured.lines[0]).toContain(msg);
+    });
+
+    test("does not collapse short strings (< threshold length)", () => {
+      const logger = new StderrLogger("info", false);
+      // Short string with control char — below BINARY_MIN_LENGTH
+      logger.info("ab\x01");
+      expect(captured.lines[0]).not.toContain("<binary:");
+    });
   });
 });

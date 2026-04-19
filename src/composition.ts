@@ -4,19 +4,19 @@
 // Both CLI and MCP entry points call composeApp() exactly once.
 // ---------------------------------------------------------------------------
 
-import { createBrowserReaders } from "./adapters/browser/index.ts";
-import { SyncCache } from "./adapters/fs/sync-cache.ts";
-import { XdgStorage } from "./adapters/fs/xdg-storage.ts";
-import { AkiflowHttpAdapter } from "./adapters/http/akiflow-api.ts";
-import { refreshAccessToken } from "./adapters/http/token-refresh.ts";
-import { StderrLogger } from "./adapters/observability/stderr-logger.ts";
-import { type AppConfig, loadConfig } from "./config.ts";
-import type { CachePort } from "./core/ports/cache-port.ts";
-import type { LoggerPort } from "./core/ports/logger-port.ts";
-import type { StoragePort } from "./core/ports/storage-port.ts";
-import { AuthService } from "./core/services/auth-service.ts";
-import { TaskCommandService } from "./core/services/task-command-service.ts";
-import { TaskQueryService } from "./core/services/task-query-service.ts";
+import { createBrowserReaders } from "@adapters/browser/index.ts";
+import { SyncCache } from "@adapters/fs/sync-cache.ts";
+import { XdgStorage } from "@adapters/fs/xdg-storage.ts";
+import { AkiflowHttpAdapter } from "@adapters/http/akiflow-api.ts";
+import { refreshAccessToken } from "@adapters/http/token-refresh.ts";
+import { StderrLogger } from "@adapters/observability/stderr-logger.ts";
+import { type AppConfig, loadConfig } from "@config";
+import type { CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { StoragePort } from "@core/ports/storage-port.ts";
+import { AuthService } from "@core/services/auth-service.ts";
+import { TaskCommandService } from "@core/services/task-command-service.ts";
+import { TaskQueryService } from "@core/services/task-query-service.ts";
 
 export interface AppComponents {
   logger: LoggerPort;
@@ -48,6 +48,6 @@ export function composeApp(): AppComponents {
     cacheTtlSeconds: config.cacheTtlSeconds,
     logger,
   });
-  const taskCommand = new TaskCommandService({ auth: authService, http, logger });
+  const taskCommand = new TaskCommandService({ auth: authService, http, logger, cache });
   return { logger, config, authService, storage, cache, taskQuery, taskCommand };
 }

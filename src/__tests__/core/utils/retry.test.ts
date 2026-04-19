@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { NetworkError } from "../../../core/errors/index.ts";
-import { computeDelay, type RetryPolicy, withRetry } from "../../../core/utils/retry.ts";
+import { NetworkError } from "@core/errors/index.ts";
+import { computeDelay, type RetryPolicy, withRetry } from "@core/utils/retry.ts";
 
 const fastPolicy: RetryPolicy = {
   maxAttempts: 3,

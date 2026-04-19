@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createDecipheriv, pbkdf2Sync } from "node:crypto";
 import { existsSync } from "node:fs";
-import type { BrowserProfile } from "../../core/browser-paths.ts";
-import type { BrowserDataPort } from "../../core/ports/browser-data-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { ExtractedToken } from "../../core/types.ts";
+import type { BrowserProfile } from "@core/browser-paths.ts";
+import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { ExtractedToken } from "@core/types.ts";
 
 const PBKDF2_SALT = "saltysalt";
 const PBKDF2_ITERATIONS = 1003;
@@ -14,10 +14,24 @@ const PBKDF2_DIGEST = "sha1";
 // Chrome on macOS uses 16 bytes of 0x20 (space) as IV
 const AES_IV = Buffer.alloc(16, 0x20);
 
-/** Retrieve Chrome Safe Storage password from macOS Keychain */
+// Bearer-usable token patterns. A decrypted Laravel `remember_web_*` cookie
+// is a session payload for the Laravel backend — NOT an API Bearer — so we
+// only keep the value if it embeds an actual JWT or a Laravel Passport
+// refresh token that `AuthService.refreshOnce` can exchange for a JWT.
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
+const REFRESH_PATTERN = /def50200[a-f0-9]{200,}/;
+
+/**
+ * Retrieve Chrome Safe Storage password from macOS Keychain.
+ *
+ * Uses `execFileSync` (argv array) instead of `execSync` (shell) so that the
+ * `service` argument — which is currently a hardcoded constant but could
+ * become dynamic in the future — cannot be weaponized for shell injection.
+ */
 function getKeychainPassword(service: string): string {
-  const cmd = `security find-generic-password -s "${service}" -w`;
-  return execSync(cmd, { encoding: "utf-8" }).trim();
+  return execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
+    encoding: "utf-8",
+  }).trim();
 }
 
 /** Derive AES key from Keychain password using PBKDF2 */
@@ -102,14 +116,30 @@ export class ChromeCookieReader implements BrowserDataPort {
         const value = decryptCookieValue(Buffer.from(row.encrypted_value), key);
         if (!value) continue;
 
-        this.logger.info(`[cookie] ${this.browser.name}: decrypted cookie ${row.name}`);
+        // Security (SECURITY-AUDIT-REPORT S-5): never attribute a raw Laravel
+        // session cookie to accessToken. Only surface a token if a JWT or
+        // refresh token is embedded in the decrypted payload.
+        const jwt = value.match(JWT_PATTERN)?.[0];
+        const refresh = value.match(REFRESH_PATTERN)?.[0];
+
+        if (!jwt && !refresh) {
+          this.logger.debug(
+            `[cookie] ${this.browser.name}: ${row.name} decrypted to a Laravel session payload with no Bearer-usable token — skipping`,
+          );
+          continue;
+        }
+
+        this.logger.info(
+          `[cookie] ${this.browser.name}: extracted Bearer-capable token from ${row.name} (jwt=${!!jwt}, refresh=${!!refresh})`,
+        );
         return {
-          accessToken: value,
+          accessToken: jwt ?? "",
+          refreshToken: refresh,
           browser: this.browser.name,
         };
       }
 
-      this.logger.debug(`[cookie] ${this.browser.name}: all cookies failed decryption`);
+      this.logger.debug(`[cookie] ${this.browser.name}: no cookie yielded a usable Bearer token`);
       return null;
     } finally {
       db.close();

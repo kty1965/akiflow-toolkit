@@ -7,7 +7,7 @@ import type {
   LoggerPort,
   LogLevel,
   TaskPort,
-} from "../../../core/ports/index.ts";
+} from "@core/ports/index.ts";
 
 describe("core/ports barrel export", () => {
   test("AuthPort interface is importable", () => {

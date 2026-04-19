@@ -3,9 +3,9 @@
 // Lets an LLM agent self-diagnose auth issues (expired token, missing source).
 // ---------------------------------------------------------------------------
 
+import type { AuthService } from "@core/services/auth-service.ts";
+import type { AuthStatus } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthService } from "../../core/services/auth-service.ts";
-import type { AuthStatus } from "../../core/types.ts";
 
 export interface AuthStatusToolDeps {
   authService: Pick<AuthService, "getStatus">;

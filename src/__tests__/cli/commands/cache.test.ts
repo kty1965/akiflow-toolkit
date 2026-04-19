@@ -5,8 +5,8 @@ import {
   type CliWriter,
   clearCommand,
   createCacheCommand,
-} from "../../../cli/commands/cache.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
+} from "@cli/commands/cache.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 function createFakeCache(): { cache: ClearableCache; calls: { clearAll: number } } {
   const calls = { clearAll: 0 };

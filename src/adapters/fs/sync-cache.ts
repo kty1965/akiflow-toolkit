@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CacheMeta, CachePort, PendingEntry } from "../../core/ports/cache-port.ts";
-import type { Task } from "../../core/types.ts";
+import type { CacheMeta, CachePort, PendingEntry } from "@core/ports/cache-port.ts";
+import type { Task } from "@core/types.ts";
 
 const TASKS_FILE = "tasks.json";
 const TASKS_META_FILE = "tasks-meta.json";

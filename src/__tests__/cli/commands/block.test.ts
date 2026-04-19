@@ -6,11 +6,11 @@ import {
   createBlockCommand,
   parseBlockDuration,
   type TaskCommandApi,
-} from "../../../cli/commands/block.ts";
-import { ValidationError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { CreateTaskInput } from "../../../core/services/task-command-service.ts";
-import type { Task } from "../../../core/types.ts";
+} from "@cli/commands/block.ts";
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { CreateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

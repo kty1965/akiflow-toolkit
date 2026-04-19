@@ -5,7 +5,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LogLevel } from "./core/ports/logger-port.ts";
+import type { LogLevel } from "@core/ports/logger-port.ts";
 
 const APP_NAME = "akiflow";
 const DEFAULT_API_BASE_URL = "https://api.akiflow.com";
@@ -53,6 +53,35 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * Parse a user-supplied base URL env with strict safety checks.
+ *
+ * Rules:
+ *   1. Must parse as a URL.
+ *   2. Must be `https://` by default. Set `AF_ALLOW_INSECURE_BASE_URL=1` to
+ *      allow `http://` (intended for local dev mocks only).
+ *   3. Trailing slash is stripped so callers can concatenate paths safely.
+ *
+ * Rejecting non-https prevents Bearer-token leakage via MITM and SSRF-style
+ * redirection if an operator env is poisoned with an attacker URL.
+ */
+function parseBaseUrl(value: string | undefined, fallback: string, field: string, allowInsecure: boolean): string {
+  if (!value) return fallback;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid ${field}: ${value} is not a parseable URL`);
+  }
+  if (url.protocol !== "https:" && !(allowInsecure && url.protocol === "http:")) {
+    throw new Error(
+      `Invalid ${field}: ${value} — scheme must be https:// ` +
+        `(set AF_ALLOW_INSECURE_BASE_URL=1 to allow http:// for local dev)`,
+    );
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const env = options.env ?? process.env;
   const argv = options.argv ?? process.argv;
@@ -62,13 +91,14 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const logLevel = parseLogLevel(env.LOG_LEVEL, fallbackLevel);
   const logFormat: "text" | "json" = env.LOG_FORMAT === "json" ? "json" : "text";
 
+  const allowInsecure = env.AF_ALLOW_INSECURE_BASE_URL === "1";
   const config: AppConfig = {
     logLevel,
     logFormat,
     configDir: resolveConfigDir(env),
     cacheDir: resolveCacheDir(env),
-    apiBaseUrl: env.AF_API_BASE_URL ?? DEFAULT_API_BASE_URL,
-    authBaseUrl: env.AF_AUTH_BASE_URL ?? DEFAULT_AUTH_BASE_URL,
+    apiBaseUrl: parseBaseUrl(env.AF_API_BASE_URL, DEFAULT_API_BASE_URL, "AF_API_BASE_URL", allowInsecure),
+    authBaseUrl: parseBaseUrl(env.AF_AUTH_BASE_URL, DEFAULT_AUTH_BASE_URL, "AF_AUTH_BASE_URL", allowInsecure),
     cdpPort: parseNumber(env.AF_CDP_PORT, DEFAULT_CDP_PORT),
     cacheTtlSeconds: parseNumber(env.AF_CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL),
   };
