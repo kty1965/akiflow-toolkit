@@ -17,6 +17,12 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code local state (per-developer, non-shareable)
+#  - scheduled_tasks.lock: process singleton lock for ScheduleWakeup callbacks
+#  - settings.local.json: developer-specific pre-approved permissions
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # Environment
 .env
 .env.local
