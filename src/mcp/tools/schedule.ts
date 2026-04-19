@@ -4,10 +4,10 @@
 // Thin wrappers over TaskCommandService (ADR-0006, ADR-0010).
 // ---------------------------------------------------------------------------
 
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { Task } from "../../core/types.ts";
 import { formatSingleTask, toolError } from "./tasks.ts";
 
 export interface ScheduleToolsDeps {

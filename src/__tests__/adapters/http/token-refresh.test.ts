@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { refreshAccessToken } from "../../../adapters/http/token-refresh.ts";
-import { AuthExpiredError, NetworkError } from "../../../core/errors/index.ts";
-import type { TokenRefreshResponse } from "../../../core/types.ts";
+import { refreshAccessToken } from "@adapters/http/token-refresh.ts";
+import { AuthExpiredError, NetworkError } from "@core/errors/index.ts";
+import type { TokenRefreshResponse } from "@core/types.ts";
 
 const originalFetch = globalThis.fetch;
 

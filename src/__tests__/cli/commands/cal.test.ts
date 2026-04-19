@@ -10,10 +10,10 @@ import {
   formatEventsText,
   parseDays,
   resolveStartDate,
-} from "../../../cli/commands/cal.ts";
-import { ValidationError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { Calendar, CalendarEvent } from "../../../core/types.ts";
+} from "@cli/commands/cal.ts";
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Calendar, CalendarEvent } from "@core/types.ts";
 
 function makeEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {

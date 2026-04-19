@@ -6,10 +6,10 @@ import {
   resolveInputs,
   type TaskCache,
   type TaskCompleteApi,
-} from "../../../cli/commands/do.ts";
-import { NotFoundError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { Task } from "../../../core/types.ts";
+} from "@cli/commands/do.ts";
+import { NotFoundError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

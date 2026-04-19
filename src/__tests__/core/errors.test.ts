@@ -9,7 +9,7 @@ import {
   NetworkError,
   NotFoundError,
   ValidationError,
-} from "../../core/errors/index.ts";
+} from "@core/errors/index.ts";
 
 describe("core/errors", () => {
   describe("AkiflowError", () => {

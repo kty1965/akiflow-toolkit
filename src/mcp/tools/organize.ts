@@ -6,9 +6,9 @@
 // separately so LLMs can match either user vocabulary.
 // ---------------------------------------------------------------------------
 
+import type { TaskQueryService } from "@core/services/task-query-service.ts";
+import type { Label, Tag } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { TaskQueryService } from "../../core/services/task-query-service.ts";
-import type { Label, Tag } from "../../core/types.ts";
 
 export interface OrganizeToolsDeps {
   taskQuery: Pick<TaskQueryService, "getLabels" | "getTags">;

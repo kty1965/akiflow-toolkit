@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BrowserProfile } from "../../core/browser-paths.ts";
-import type { BrowserDataPort } from "../../core/ports/browser-data-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { ExtractedToken } from "../../core/types.ts";
+import type { BrowserProfile } from "@core/browser-paths.ts";
+import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { ExtractedToken } from "@core/types.ts";
 
 // JWT: three base64url segments separated by dots
 const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
@@ -41,7 +41,20 @@ export class IndexedDbReader implements BrowserDataPort {
   ) {}
 
   async extract(): Promise<ExtractedToken | null> {
-    const dbPath = this.browser.indexedDbPath;
+    const paths = this.browser.indexedDbPaths;
+    if (paths.length === 0) {
+      this.logger.debug(`[indexeddb] ${this.browser.name}: no candidate paths configured`);
+      return null;
+    }
+
+    for (const dbPath of paths) {
+      const result = this.extractFromPath(dbPath);
+      if (result) return result;
+    }
+    return null;
+  }
+
+  private extractFromPath(dbPath: string): ExtractedToken | null {
     if (!existsSync(dbPath)) {
       this.logger.debug(`[indexeddb] ${this.browser.name}: path not found ${dbPath}`);
       return null;
@@ -56,7 +69,7 @@ export class IndexedDbReader implements BrowserDataPort {
     }
 
     if (files.length === 0) {
-      this.logger.debug(`[indexeddb] ${this.browser.name}: no .log/.ldb files`);
+      this.logger.debug(`[indexeddb] ${this.browser.name}: no .log/.ldb files in ${dbPath}`);
       return null;
     }
 
@@ -92,7 +105,7 @@ export class IndexedDbReader implements BrowserDataPort {
     }
 
     if (jwts.length === 0) {
-      this.logger.debug(`[indexeddb] ${this.browser.name}: no valid JWTs found`);
+      this.logger.debug(`[indexeddb] ${this.browser.name}: no valid JWTs in ${dbPath}`);
       return null;
     }
 
@@ -100,7 +113,7 @@ export class IndexedDbReader implements BrowserDataPort {
     jwts.sort((a, b) => b.exp - a.exp);
     const best = jwts[0];
 
-    this.logger.info(`[indexeddb] ${this.browser.name}: found token (exp=${best.exp})`);
+    this.logger.info(`[indexeddb] ${this.browser.name}: found token (exp=${best.exp}) in ${dbPath}`);
     return {
       accessToken: best.token,
       refreshToken,

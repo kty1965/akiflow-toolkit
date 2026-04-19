@@ -1,13 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { AuthStatus } from "@core/types.ts";
+import { AUTH_STATUS_TOOL_NAME, type AuthStatusToolDeps, registerAuthStatusTool } from "@mcp/tools/auth-status.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthStatus } from "../../../core/types.ts";
-import {
-  AUTH_STATUS_TOOL_NAME,
-  type AuthStatusToolDeps,
-  registerAuthStatusTool,
-} from "../../../mcp/tools/auth-status.ts";
 
 function buildDeps(getStatus: () => Promise<AuthStatus>): AuthStatusToolDeps {
   return { authService: { getStatus } };

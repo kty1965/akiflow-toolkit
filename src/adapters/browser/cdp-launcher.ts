@@ -5,11 +5,11 @@
 // responses. No Puppeteer dependency — pure node:child_process + WebSocket.
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { BrowserDataError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { ExtractedToken } from "../../core/types.ts";
+import { BrowserDataError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { ExtractedToken } from "@core/types.ts";
 
 const DEFAULT_PORT = 9222;
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -18,6 +18,25 @@ const DISCOVERY_POLL_INTERVAL_MS = 100;
 const DEFAULT_LOGIN_URL = "https://web.akiflow.com/auth/login";
 
 const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/user/me"] as const;
+
+// Security (SECURITY-AUDIT-REPORT S-13): reject CDP endpoints that a local
+// port squatter could masquerade as. We validate the Browser identity from
+// /json/version and insist the WebSocket URL points at localhost on the
+// exact port we told Chrome to use.
+const BROWSER_ID_PATTERN = /^(?:HeadlessChrome|Chrome|Chromium|Brave|Arc|Edg|Edge)\/\d/;
+
+export function isLocalDebuggerUrl(url: string, expectedPort: number): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "ws:") return false;
+  if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost") return false;
+  if (u.port !== String(expectedPort)) return false;
+  return true;
+}
 
 // --- Injection-friendly minimal interfaces --------------------------------
 
@@ -79,9 +98,14 @@ const defaultCreateWebSocket: CreateWebSocketFn = (url) => {
 
 const defaultExists = (path: string): boolean => existsSync(path);
 
+// Only accept executable-name-like tokens. Prevents any future caller from
+// slipping shell metacharacters through `defaultWhich`.
+const WHICH_SAFE_CMD = /^[A-Za-z0-9._/-]+$/;
+
 const defaultWhich = (cmd: string): string | null => {
+  if (!WHICH_SAFE_CMD.test(cmd)) return null;
   try {
-    const out = execSync(`command -v ${cmd}`, { encoding: "utf-8" }).trim();
+    const out = execFileSync("/usr/bin/env", ["which", cmd], { encoding: "utf-8" }).trim();
     return out.length > 0 ? out : null;
   } catch {
     return null;
@@ -104,6 +128,15 @@ export interface CdpBrowserLoginOptions {
   existsFn?: (path: string) => boolean;
   whichFn?: (cmd: string) => string | null;
   platform?: NodeJS.Platform;
+  /**
+   * Optional additional validation of a captured token before it is accepted
+   * (SECURITY-AUDIT-REPORT S-13). Typical impl: call Akiflow API with the
+   * new Bearer JWT and confirm 200 OK — this detects a port-squat attacker
+   * that injected a bogus token via fake CDP responses.
+   *
+   * Returning `false` makes `login()` reject the capture and throw.
+   */
+  validateTokenFn?: (token: ExtractedToken) => Promise<boolean>;
 }
 
 const MAC_CHROME_CANDIDATES: readonly string[] = [
@@ -135,6 +168,7 @@ export class CdpBrowserLogin {
   private readonly existsFn: (path: string) => boolean;
   private readonly whichFn: (cmd: string) => string | null;
   private readonly platform: NodeJS.Platform;
+  private readonly validateTokenFn?: (token: ExtractedToken) => Promise<boolean>;
 
   constructor(options: CdpBrowserLoginOptions) {
     this.logger = options.logger;
@@ -149,6 +183,7 @@ export class CdpBrowserLogin {
     this.existsFn = options.existsFn ?? defaultExists;
     this.whichFn = options.whichFn ?? defaultWhich;
     this.platform = options.platform ?? process.platform;
+    this.validateTokenFn = options.validateTokenFn;
   }
 
   /**
@@ -170,8 +205,20 @@ export class CdpBrowserLogin {
     try {
       const wsUrl = await this.getWebSocketUrl();
       ws = this.createWebSocketFn(wsUrl);
-      const token = await this.waitForLogin(ws);
-      return { ...token, browser: this.labelFor(chromePath) };
+      const captured = await this.waitForLogin(ws);
+      const token: ExtractedToken = { ...captured, browser: this.labelFor(chromePath) };
+
+      // Security (SECURITY-AUDIT-REPORT S-13): if a validator is configured,
+      // round-trip the captured token through it before accepting. Rejects
+      // attacker-injected tokens that Akiflow's real API would refuse.
+      if (this.validateTokenFn) {
+        const ok = await this.validateTokenFn(token);
+        if (!ok) {
+          throw new BrowserDataError("captured CDP token failed validation — possible port squat, discarding");
+        }
+      }
+
+      return token;
     } finally {
       if (ws) {
         try {
@@ -219,7 +266,15 @@ export class CdpBrowserLogin {
     return this.spawnFn(chromePath, args, { stdio: "ignore" });
   }
 
-  /** Poll `/json/version` until Chrome exposes a webSocketDebuggerUrl. */
+  /**
+   * Poll `/json/version` until Chrome exposes a webSocketDebuggerUrl.
+   *
+   * Security (SECURITY-AUDIT-REPORT S-13): reject responses whose `Browser`
+   * identity is not a known Chromium family, or whose `webSocketDebuggerUrl`
+   * is not `ws://127.0.0.1:<this.port>/…`. Both defend against a local
+   * process that squatted our port before Chrome started and is serving a
+   * malicious CDP endpoint.
+   */
   async getWebSocketUrl(): Promise<string> {
     const endpoint = `http://127.0.0.1:${this.port}/json/version`;
     const start = Date.now();
@@ -230,7 +285,20 @@ export class CdpBrowserLogin {
         const res = await this.fetchFn(endpoint);
         if (res.ok) {
           const json = await res.json();
+
+          const browserId = readString(json, "Browser");
+          if (browserId && !BROWSER_ID_PATTERN.test(browserId)) {
+            throw new BrowserDataError(
+              `CDP endpoint on port ${this.port} has unexpected Browser identity '${browserId}' — aborting (possible port squat)`,
+            );
+          }
+
           const wsUrl = readString(json, "webSocketDebuggerUrl");
+          if (wsUrl && !isLocalDebuggerUrl(wsUrl, this.port)) {
+            throw new BrowserDataError(
+              `CDP webSocketDebuggerUrl '${wsUrl}' is not ws://127.0.0.1:${this.port}/… — aborting (possible port squat)`,
+            );
+          }
           if (wsUrl) return wsUrl;
         }
       } catch (err) {

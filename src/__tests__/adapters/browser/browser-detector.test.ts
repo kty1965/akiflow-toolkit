@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectBrowsers } from "../../../adapters/browser/browser-detector.ts";
+import { detectBrowsers } from "@adapters/browser/browser-detector.ts";
 
 describe("detectBrowsers", () => {
   let fakeHome: string;
@@ -38,7 +38,11 @@ describe("detectBrowsers", () => {
     expect(result[0].name).toBe("Chrome");
     expect(result[0].profilePath).toBe(chromeProfile);
     expect(result[0].cookiesDb).toBe(join(chromeProfile, "Cookies"));
-    expect(result[0].indexedDbPath).toBe(join(chromeProfile, "IndexedDB/https_web.akiflow.com_0.indexeddb.leveldb"));
+    expect(result[0].indexedDbPaths).toEqual([
+      join(chromeProfile, "IndexedDB/https_auth.akiflow.com_0.indexeddb.leveldb"),
+      join(chromeProfile, "IndexedDB/https_web.akiflow.com_0.indexeddb.leveldb"),
+      join(chromeProfile, "IndexedDB/https_product.akiflow.com_0.indexeddb.leveldb"),
+    ]);
     expect(result[0].keychainService).toBe("Chrome Safe Storage");
   });
 

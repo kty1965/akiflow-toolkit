@@ -5,10 +5,10 @@
 // ---------------------------------------------------------------------------
 
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { AuthStatus, Credentials } from "@core/types.ts";
 import { defineCommand } from "citty";
-import { ValidationError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { AuthStatus, Credentials } from "../../core/types.ts";
 import { handleCliError } from "../app.ts";
 
 export interface AuthServiceApi {

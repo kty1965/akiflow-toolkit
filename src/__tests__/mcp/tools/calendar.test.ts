@@ -1,16 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CalendarEvent } from "../../../core/types.ts";
+import type { CalendarEvent } from "@core/types.ts";
 import {
   addDaysIso,
   type CalendarToolsDeps,
+  DEFAULT_WORK_END,
+  DEFAULT_WORK_START,
   formatEventsForLLM,
   GET_EVENTS_TOOL_NAME,
+  GET_FREE_SLOTS_TOOL_NAME,
   registerCalendarTools,
   todayIso,
-} from "../../../mcp/tools/calendar.ts";
+} from "@mcp/tools/calendar.ts";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 function buildDeps(getEvents: (date: string) => Promise<CalendarEvent[]>): CalendarToolsDeps {
   return { taskQuery: { getEvents } };
@@ -176,6 +179,161 @@ describe("mcp/tools/calendar", () => {
       const result = await client.callTool({ name: GET_EVENTS_TOOL_NAME, arguments: {} });
 
       // Then: isError flag set, error message + recovery guidance
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("token refresh failed");
+      expect(textOf(result)).toContain("af auth");
+    });
+  });
+
+  describe("get_free_slots tool registration", () => {
+    test("registers as readOnly/openWorld with description examples", async () => {
+      // Given: calendar tools registered
+      registerCalendarTools(
+        server,
+        buildDeps(async () => []),
+      );
+      client = await connectClient(server);
+
+      // When: listing tools
+      const { tools } = await client.listTools();
+      const free = tools.find((t) => t.name === GET_FREE_SLOTS_TOOL_NAME);
+
+      // Then: free-slots tool is present with expected annotations + description hints
+      expect(free).toBeDefined();
+      expect(free?.annotations?.readOnlyHint).toBe(true);
+      expect(free?.annotations?.openWorldHint).toBe(true);
+      expect(free?.description ?? "").toContain("예:");
+    });
+  });
+
+  describe("get_free_slots defaults", () => {
+    test("no args → uses today + default work window 09:00-18:00, no events → full window", async () => {
+      // Given: stub returns no events for any date
+      const calls: string[] = [];
+      registerCalendarTools(
+        server,
+        buildDeps(async (date) => {
+          calls.push(date);
+          return [];
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling without args
+      const result = await client.callTool({ name: GET_FREE_SLOTS_TOOL_NAME, arguments: {} });
+
+      // Then: today is queried once; body shows a single full-window slot
+      expect(calls).toEqual([todayIso()]);
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain(`${DEFAULT_WORK_START}-${DEFAULT_WORK_END}`);
+      expect(text).toContain("총 1개 슬롯");
+    });
+  });
+
+  describe("get_free_slots with events", () => {
+    test("events split the work window into gaps", async () => {
+      // Given: one mid-day event 12:00-13:00 on the target date
+      registerCalendarTools(
+        server,
+        buildDeps(async (date) => [buildEvent({ start: `${date}T12:00:00`, end: `${date}T13:00:00`, title: "Lunch" })]),
+      );
+      client = await connectClient(server);
+
+      // When: calling with an explicit date
+      const result = await client.callTool({
+        name: GET_FREE_SLOTS_TOOL_NAME,
+        arguments: { date: "2026-04-16" },
+      });
+
+      // Then: two slots are reported (09:00-12:00 and 13:00-18:00)
+      const text = textOf(result);
+      expect(text).toContain("09:00-12:00");
+      expect(text).toContain("13:00-18:00");
+      expect(text).toContain("총 2개 슬롯");
+    });
+
+    test("custom work_start/work_end narrow the window", async () => {
+      // Given: empty calendar
+      registerCalendarTools(
+        server,
+        buildDeps(async () => []),
+      );
+      client = await connectClient(server);
+
+      // When: calling with a 10:00-12:00 work window
+      const result = await client.callTool({
+        name: GET_FREE_SLOTS_TOOL_NAME,
+        arguments: { date: "2026-04-16", work_start: "10:00", work_end: "12:00" },
+      });
+
+      // Then: only a single slot covering the narrow window is returned
+      const text = textOf(result);
+      expect(text).toContain("10:00-12:00");
+      expect(text).toContain("총 1개 슬롯");
+    });
+
+    test("multi-day range returns one section per date", async () => {
+      // Given: stub records each date it receives
+      const calls: string[] = [];
+      registerCalendarTools(
+        server,
+        buildDeps(async (date) => {
+          calls.push(date);
+          return [];
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: asking for 2 days starting at a fixed date
+      const result = await client.callTool({
+        name: GET_FREE_SLOTS_TOOL_NAME,
+        arguments: { date: "2026-04-16", days: 2 },
+      });
+
+      // Then: both dates are fetched and appear in the output
+      expect(calls).toEqual(["2026-04-16", "2026-04-17"]);
+      const text = textOf(result);
+      expect(text).toContain("2026-04-16");
+      expect(text).toContain("2026-04-17");
+    });
+  });
+
+  describe("get_free_slots error handling", () => {
+    test("work_end <= work_start → isError with explanation", async () => {
+      // Given: valid deps but an inverted work window
+      registerCalendarTools(
+        server,
+        buildDeps(async () => []),
+      );
+      client = await connectClient(server);
+
+      // When: calling with end before start
+      const result = await client.callTool({
+        name: GET_FREE_SLOTS_TOOL_NAME,
+        arguments: { work_start: "18:00", work_end: "09:00" },
+      });
+
+      // Then: isError=true, message references both inputs
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("work_end");
+      expect(textOf(result)).toContain("work_start");
+    });
+
+    test("underlying getEvents throws → isError with auth hint", async () => {
+      // Given: a stub that throws
+      registerCalendarTools(
+        server,
+        buildDeps(async () => {
+          throw new Error("token refresh failed");
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({ name: GET_FREE_SLOTS_TOOL_NAME, arguments: {} });
+
+      // Then: isError flag and recovery guidance
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("token refresh failed");
       expect(textOf(result)).toContain("af auth");

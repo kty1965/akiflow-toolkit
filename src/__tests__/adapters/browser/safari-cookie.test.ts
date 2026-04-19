@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseBinaryCookies, SafariCookieReader } from "../../../adapters/browser/safari-cookie.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
+import { parseBinaryCookies, SafariCookieReader } from "@adapters/browser/safari-cookie.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 const silentLogger: LoggerPort = {
   trace: () => {},
@@ -178,11 +178,26 @@ describe("SafariCookieReader", () => {
     expect(result).toBeNull();
   });
 
-  test("extracts akiflow remember_web_* cookie value as accessToken", async () => {
+  test("returns null when akiflow cookie has no embedded JWT or refresh token (SECURITY S-5)", async () => {
+    // Laravel session cookies carry no Bearer token — never surface as accessToken.
     if (process.platform !== "darwin") return;
     const buf = buildBinaryCookies([
-      { domain: "other.com", name: "unrelated", path: "/", value: "skip" },
-      { domain: "web.akiflow.com", name: "remember_web_abc123", path: "/", value: "session-token-value" },
+      { domain: "web.akiflow.com", name: "remember_web_abc123", path: "/", value: "plain-session-value" },
+    ]);
+    await writeFile(cookiesPath, buf);
+    const reader = new SafariCookieReader(silentLogger, cookiesPath);
+
+    const result = await reader.extract();
+    expect(result).toBeNull();
+  });
+
+  test("extracts embedded JWT from akiflow remember_web_* cookie (SECURITY S-5)", async () => {
+    if (process.platform !== "darwin") return;
+    const jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIs.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNTE2MjM5MDIyfQ.dummy";
+    // Frame with characters outside [A-Za-z0-9_-] so the regex boundary is unambiguous.
+    const cookieValue = `{"envelope":"laravel-session","jwt":"${jwt}","tail":"x"}`;
+    const buf = buildBinaryCookies([
+      { domain: "web.akiflow.com", name: "remember_web_abc123", path: "/", value: cookieValue },
     ]);
     await writeFile(cookiesPath, buf);
     const reader = new SafariCookieReader(silentLogger, cookiesPath);
@@ -190,7 +205,24 @@ describe("SafariCookieReader", () => {
     const result = await reader.extract();
 
     expect(result).not.toBeNull();
-    expect(result?.accessToken).toBe("session-token-value");
+    expect(result?.accessToken).toBe(jwt);
     expect(result?.browser).toBe("Safari");
+  });
+
+  test("extracts Laravel refresh token from akiflow cookie (SECURITY S-5)", async () => {
+    if (process.platform !== "darwin") return;
+    const refresh = `def50200${"a".repeat(250)}`;
+    const cookieValue = `{"refresh":"${refresh}"}`;
+    const buf = buildBinaryCookies([
+      { domain: "web.akiflow.com", name: "remember_web_abc123", path: "/", value: cookieValue },
+    ]);
+    await writeFile(cookiesPath, buf);
+    const reader = new SafariCookieReader(silentLogger, cookiesPath);
+
+    const result = await reader.extract();
+
+    expect(result).not.toBeNull();
+    expect(result?.refreshToken).toBe(refresh);
+    expect(result?.accessToken).toBe(""); // signals caller to exchange refresh → access
   });
 });

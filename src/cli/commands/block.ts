@@ -4,11 +4,11 @@
 // Duration supports 1h, 30m, 2h30m composite forms.
 // ---------------------------------------------------------------------------
 
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { CreateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task } from "@core/types.ts";
 import { defineCommand } from "citty";
-import { ValidationError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { CreateTaskInput } from "../../core/services/task-command-service.ts";
-import type { Task } from "../../core/types.ts";
 import { handleCliError } from "../app.ts";
 
 export interface TaskCommandApi {

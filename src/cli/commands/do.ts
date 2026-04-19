@@ -3,12 +3,12 @@
 // Accepts short IDs (1, 2, 3) from `af ls`, UUIDs, or 6+ char UUID prefixes.
 // ---------------------------------------------------------------------------
 
+import { NotFoundError } from "@core/errors/index.ts";
+import type { CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task } from "@core/types.ts";
+import { resolveTaskId } from "@core/utils/resolve-task-id.ts";
 import { defineCommand } from "citty";
-import { NotFoundError } from "../../core/errors/index.ts";
-import type { CachePort } from "../../core/ports/cache-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { Task } from "../../core/types.ts";
-import { resolveTaskId } from "../../core/utils/resolve-task-id.ts";
 import { handleCliError } from "../app.ts";
 
 export interface TaskCompleteApi {

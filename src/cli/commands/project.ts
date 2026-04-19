@@ -4,10 +4,10 @@
 // add/delete are stubbed pending Label CRUD in TaskCommandService.
 // ---------------------------------------------------------------------------
 
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Label } from "@core/types.ts";
 import { defineCommand } from "citty";
-import { ValidationError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { Label } from "../../core/types.ts";
 import { handleCliError } from "../app.ts";
 
 export interface ProjectQueryApi {

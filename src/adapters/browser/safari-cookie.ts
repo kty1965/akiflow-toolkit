@@ -9,15 +9,21 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { BrowserDataPort } from "../../core/ports/browser-data-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { ExtractedToken } from "../../core/types.ts";
+import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { ExtractedToken } from "@core/types.ts";
 
 const MAGIC = "cook";
 const PAGE_HEADER = 0x00000100;
 const COOKIE_HEADER_SIZE = 56; // bytes before strings region within a cookie record
 const AKIFLOW_DOMAIN_SUFFIX = "akiflow.com";
 const AKIFLOW_COOKIE_PREFIX = "remember_web_";
+
+// Bearer-usable token patterns — see chrome-cookie.ts for rationale. Safari
+// `remember_web_*` cookies are Laravel encrypted session payloads; only keep
+// them when they embed a JWT or Laravel Passport refresh token.
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
+const REFRESH_PATTERN = /def50200[a-f0-9]{200,}/;
 
 export interface SafariCookie {
   domain: string;
@@ -70,11 +76,28 @@ export class SafariCookieReader implements BrowserDataPort {
       return null;
     }
 
-    this.logger.info(`[safari] extracted cookie ${akiflow[0].name}`);
-    return {
-      accessToken: akiflow[0].value,
-      browser: "Safari",
-    };
+    // Security (SECURITY-AUDIT-REPORT S-5): only surface a cookie whose
+    // decrypted value embeds a JWT or refresh token; never treat a raw
+    // Laravel session payload as an API Bearer.
+    for (const cookie of akiflow) {
+      const jwt = cookie.value.match(JWT_PATTERN)?.[0];
+      const refresh = cookie.value.match(REFRESH_PATTERN)?.[0];
+      if (!jwt && !refresh) {
+        this.logger.debug(`[safari] ${cookie.name} has no Bearer-usable token — skipping`);
+        continue;
+      }
+      this.logger.info(
+        `[safari] extracted Bearer-capable token from ${cookie.name} (jwt=${!!jwt}, refresh=${!!refresh})`,
+      );
+      return {
+        accessToken: jwt ?? "",
+        refreshToken: refresh,
+        browser: "Safari",
+      };
+    }
+
+    this.logger.debug("[safari] no akiflow cookie yielded a usable Bearer token");
+    return null;
   }
 }
 
