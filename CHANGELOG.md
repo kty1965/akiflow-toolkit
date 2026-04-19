@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.1...v1.0.2) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** republish to npm after token scope correction ([#46](https://github.com/kty1965/akiflow-toolkit/issues/46)) ([c28d100](https://github.com/kty1965/akiflow-toolkit/commit/c28d100e2c97ba00c0831dc14e650defce845878))
+
 ## [1.0.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.0...v1.0.1) (2026-04-19)
 
 
