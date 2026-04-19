@@ -16,12 +16,11 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0",
-    "bun": ">=1.0.0"
+    "bun": ">=1.1.0"
   },
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "build": "bun build ./src/index.ts --outdir dist --target node && bun run scripts/post-build.ts",
+    "build": "bun build ./src/index.ts --outdir dist --target bun",
     "build:binary": "bun run build:darwin-arm64 && bun run build:darwin-x64 && bun run build:linux-x64 && bun run build:linux-arm64",
     "build:darwin-arm64": "bun build --compile --minify src/index.ts --outfile dist/af-darwin-arm64",
     "build:darwin-x64": "bun build --compile --minify --target=bun-darwin-x64 src/index.ts --outfile dist/af-darwin-x64",
