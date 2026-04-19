@@ -52,7 +52,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kty1965/akiflow-toolkit"
+    "url": "git+https://github.com/kty1965/akiflow-toolkit.git"
   },
   "publishConfig": {
     "access": "public"
