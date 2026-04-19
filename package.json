@@ -8,7 +8,7 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "af": "./dist/cli.js"
+    "af": "./dist/index.js"
   },
   "files": [
     "dist/",
