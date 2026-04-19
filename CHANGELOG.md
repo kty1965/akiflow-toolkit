@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.4...v1.0.5) (2026-04-19)
+
+
+### Bug Fixes
+
+* **runtime:** switch to bun-only distribution ([#50](https://github.com/kty1965/akiflow-toolkit/issues/50)) ([74fcf28](https://github.com/kty1965/akiflow-toolkit/commit/74fcf286070c19a75f293858ef9ee2f131854297))
+
 ## [1.0.4](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.3...v1.0.4) (2026-04-19)
 
 
