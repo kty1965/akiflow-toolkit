@@ -6,6 +6,7 @@
 
 import { ApiSchemaError } from "../errors/index.ts";
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
+import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
 import type { CreateTaskPayload, Task, UpdateTaskPayload } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
@@ -42,6 +43,12 @@ export interface TaskCommandServiceDeps {
   auth: AuthService;
   http: AkiflowHttpPort;
   logger: LoggerPort;
+  /**
+   * Optional read-side cache. When provided, write operations merge the
+   * server response into the cache so subsequent `TaskQueryService.listTasks`
+   * sees the write immediately (read-your-writes consistency within a process).
+   */
+  cache?: CachePort;
 }
 
 export class TaskCommandService {
@@ -123,6 +130,16 @@ export class TaskCommandService {
     const task = res.data[0];
     if (!task) {
       throw new ApiSchemaError(`${label}: empty response`);
+    }
+    // Merge into read cache so the next `listTasks` sees the write immediately.
+    // Deletions (soft-delete via deleted_at) are written as a task update too;
+    // TaskQueryService.applyFilters excludes deleted_at !== null.
+    if (this.deps.cache) {
+      try {
+        await this.deps.cache.upsertTask(task);
+      } catch (err) {
+        this.deps.logger.debug(`${label}: cache upsert failed`, { err: String(err) });
+      }
     }
     return task;
   }

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { AuthError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task } from "@core/types.ts";
+import { registerScheduleTools, type ScheduleToolsDeps } from "@mcp/tools/schedule.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AuthError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { Task } from "../../../core/types.ts";
-import { registerScheduleTools, type ScheduleToolsDeps } from "../../../mcp/tools/schedule.ts";
 
 const silentLogger: LoggerPort = {
   trace: () => {},

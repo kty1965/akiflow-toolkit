@@ -1,5 +1,5 @@
-import type { BrowserDataPort } from "../../core/ports/browser-data-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
+import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 import { detectBrowsers } from "./browser-detector.ts";
 import { ChromeCookieReader } from "./chrome-cookie.ts";
 import { IndexedDbReader } from "./indexeddb-reader.ts";

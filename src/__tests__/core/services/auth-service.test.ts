@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { AuthExpiredError, AuthSourceMissingError, NetworkError } from "../../../core/errors/index.ts";
-import type { BrowserDataPort } from "../../../core/ports/browser-data-port.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { StoragePort } from "../../../core/ports/storage-port.ts";
-import { AuthService, type AuthServiceDeps } from "../../../core/services/auth-service.ts";
-import type { Credentials, ExtractedToken, TokenRefreshResponse } from "../../../core/types.ts";
+import { AuthExpiredError, AuthSourceMissingError, NetworkError } from "@core/errors/index.ts";
+import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { StoragePort } from "@core/ports/storage-port.ts";
+import { AuthService, type AuthServiceDeps } from "@core/services/auth-service.ts";
+import type { Credentials, ExtractedToken, TokenRefreshResponse } from "@core/types.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles

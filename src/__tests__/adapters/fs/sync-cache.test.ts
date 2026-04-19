@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SyncCache } from "../../../adapters/fs/sync-cache.ts";
-import type { CacheMeta, PendingEntry } from "../../../core/ports/cache-port.ts";
-import type { Task } from "../../../core/types.ts";
+import { SyncCache } from "@adapters/fs/sync-cache.ts";
+import type { CacheMeta, PendingEntry } from "@core/ports/cache-port.ts";
+import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {

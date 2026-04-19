@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { IndexedDbReader } from "../../../adapters/browser/indexeddb-reader.ts";
-import type { BrowserProfile } from "../../../core/browser-paths.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
+import { IndexedDbReader } from "@adapters/browser/indexeddb-reader.ts";
+import type { BrowserProfile } from "@core/browser-paths.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 const silentLogger: LoggerPort = {
   trace: () => {},
@@ -22,12 +22,12 @@ function buildJwt(exp: number): string {
   return `${header}.${payload}.${sig}`;
 }
 
-function makeProfile(indexedDbPath: string, name = "Chrome"): BrowserProfile {
+function makeProfile(indexedDbPaths: string | string[], name = "Chrome"): BrowserProfile {
   return {
     name,
     profilePath: "/unused",
     cookiesDb: "/unused/Cookies",
-    indexedDbPath,
+    indexedDbPaths: Array.isArray(indexedDbPaths) ? indexedDbPaths : [indexedDbPaths],
     keychainService: "Chrome Safe Storage",
   };
 }
@@ -171,5 +171,101 @@ describe("IndexedDbReader", () => {
 
     // Then: returns null
     expect(result).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Multi-origin leveldb scan — mirrors the `auth → web → product` priority
+  // wired in browser-detector after Akiflow split its SPA across origins.
+  // -------------------------------------------------------------------------
+
+  describe("multi-path priority scan", () => {
+    async function mkLeveldb(name: string): Promise<string> {
+      const dir = join(tempDir, "IndexedDB", name);
+      await mkdir(dir, { recursive: true });
+      return dir;
+    }
+
+    test("falls through to the second path when the first is missing", async () => {
+      // Given: first candidate path does not exist, second has a valid JWT
+      const missing = join(tempDir, "IndexedDB", "does_not_exist");
+      const webDir = await mkLeveldb("https_web.akiflow.com_0.indexeddb.leveldb");
+      const futureExp = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = buildJwt(futureExp);
+      await writeFile(join(webDir, "000001.log"), jwt);
+
+      const profile = makeProfile([missing, webDir]);
+      const reader = new IndexedDbReader(profile, silentLogger);
+
+      // When: extract scans in order
+      const result = await reader.extract();
+
+      // Then: the JWT from the second candidate is returned
+      expect(result?.accessToken).toBe(jwt);
+    });
+
+    test("respects priority — uses first path when multiple candidates have tokens", async () => {
+      // Given: auth origin (priority 1) holds a token with earlier exp;
+      //        web origin (priority 2) holds a token with later exp.
+      //        Priority must win over freshness.
+      const authDir = await mkLeveldb("https_auth.akiflow.com_0.indexeddb.leveldb");
+      const webDir = await mkLeveldb("https_web.akiflow.com_0.indexeddb.leveldb");
+      const authExp = Math.floor(Date.now() / 1000) + 600;
+      const webExp = Math.floor(Date.now() / 1000) + 7200;
+      const authJwt = buildJwt(authExp);
+      const webJwt = buildJwt(webExp);
+      await writeFile(join(authDir, "000001.log"), authJwt);
+      await writeFile(join(webDir, "000001.log"), webJwt);
+
+      const profile = makeProfile([authDir, webDir]);
+      const reader = new IndexedDbReader(profile, silentLogger);
+
+      // When: extract is called
+      const result = await reader.extract();
+
+      // Then: the auth-origin token wins because it is tried first
+      expect(result?.accessToken).toBe(authJwt);
+      expect(result?.expiresAt).toBe(authExp);
+    });
+
+    test("skips paths that exist but yield no usable JWT, continues to next", async () => {
+      // Given: auth origin exists but holds only expired JWTs;
+      //        product origin holds a valid JWT.
+      const authDir = await mkLeveldb("https_auth.akiflow.com_0.indexeddb.leveldb");
+      const productDir = await mkLeveldb("https_product.akiflow.com_0.indexeddb.leveldb");
+      await writeFile(join(authDir, "000001.log"), buildJwt(Math.floor(Date.now() / 1000) - 3600));
+      const valid = buildJwt(Math.floor(Date.now() / 1000) + 3600);
+      await writeFile(join(productDir, "000002.ldb"), valid);
+
+      const profile = makeProfile([authDir, productDir]);
+      const reader = new IndexedDbReader(profile, silentLogger);
+
+      // When: extract is called
+      const result = await reader.extract();
+
+      // Then: falls through to product origin and returns its JWT
+      expect(result?.accessToken).toBe(valid);
+    });
+
+    test("returns null when all candidate paths are absent or empty", async () => {
+      // Given: three non-existent candidate paths
+      const profile = makeProfile([
+        join(tempDir, "IndexedDB", "missing_a"),
+        join(tempDir, "IndexedDB", "missing_b"),
+        join(tempDir, "IndexedDB", "missing_c"),
+      ]);
+      const reader = new IndexedDbReader(profile, silentLogger);
+
+      // When / Then: null (no usable token anywhere)
+      expect(await reader.extract()).toBeNull();
+    });
+
+    test("returns null when indexedDbPaths array is empty", async () => {
+      // Given: a profile that advertises zero candidate paths
+      const profile = makeProfile([]);
+      const reader = new IndexedDbReader(profile, silentLogger);
+
+      // When / Then: returns null gracefully instead of iterating nothing
+      expect(await reader.extract()).toBeNull();
+    });
   });
 });

@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Label, Tag } from "../../../core/types.ts";
+import type { Label, Tag } from "@core/types.ts";
 import {
   GET_LABELS_TOOL_NAME,
   GET_PROJECTS_TOOL_NAME,
   GET_TAGS_TOOL_NAME,
   type OrganizeToolsDeps,
   registerOrganizeTools,
-} from "../../../mcp/tools/organize.ts";
+} from "@mcp/tools/organize.ts";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 interface DepOptions {
   getLabels?: () => Promise<Label[]>;

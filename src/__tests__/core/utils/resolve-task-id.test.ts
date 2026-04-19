@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Task } from "../../../core/types.ts";
-import { resolveTaskId } from "../../../core/utils/resolve-task-id.ts";
+import type { Task } from "@core/types.ts";
+import { resolveTaskId } from "@core/utils/resolve-task-id.ts";
 
 function task(id: string): Task {
   return {

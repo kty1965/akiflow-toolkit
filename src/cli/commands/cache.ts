@@ -3,9 +3,9 @@
 // Subcommand: `af cache clear` removes all on-disk cache entries.
 // ---------------------------------------------------------------------------
 
+import type { CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 import { defineCommand } from "citty";
-import type { CachePort } from "../../core/ports/cache-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
 import { handleCliError } from "../app.ts";
 
 export type ClearableCache = Pick<CachePort, "clearAll" | "getCacheDir">;

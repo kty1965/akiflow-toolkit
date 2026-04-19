@@ -1,7 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Credentials, StoragePort } from "../../core/ports/storage-port.ts";
+import type { Credentials, StoragePort } from "@core/ports/storage-port.ts";
 
 const APP_NAME = "akiflow";
 const AUTH_FILENAME = "auth.json";

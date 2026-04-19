@@ -4,9 +4,9 @@
 // by AuthService.withAuth. Retries are composed at the service layer (ADR-0014).
 // ---------------------------------------------------------------------------
 
-import { ApiSchemaError, NetworkError } from "../../core/errors/index.ts";
-import type { AkiflowHttpPort, ListTasksParams } from "../../core/ports/akiflow-http-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
+import { ApiSchemaError, NetworkError } from "@core/errors/index.ts";
+import type { AkiflowHttpPort, ListTasksParams } from "@core/ports/akiflow-http-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type {
   ApiResponse,
   Calendar,
@@ -17,7 +17,7 @@ import type {
   Task,
   TimeSlot,
   UpdateTaskPayload,
-} from "../../core/types.ts";
+} from "@core/types.ts";
 
 const BASE_URL = "https://api.akiflow.com";
 

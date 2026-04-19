@@ -8,9 +8,9 @@ import {
   type CdpWebSocketEventName,
   type MinimalWebSocket,
   parseTokenBody,
-} from "../../../adapters/browser/cdp-launcher.ts";
-import { BrowserDataError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
+} from "@adapters/browser/cdp-launcher.ts";
+import { BrowserDataError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 // --- Test doubles ---------------------------------------------------------
 
@@ -232,6 +232,78 @@ describe("getWebSocketUrl", () => {
     // When/Then
     await expect(login.getWebSocketUrl()).rejects.toBeInstanceOf(BrowserDataError);
   });
+
+  // Security (SECURITY-AUDIT-REPORT S-13): port-squat defense.
+  describe("port-squat defense", () => {
+    test("rejects /json/version responses whose Browser identity is not Chromium-family", async () => {
+      // Given: an attacker-controlled endpoint pretending to be Chrome
+      const fetchFn = mock(
+        async (): Promise<CdpFetchResponse> => ({
+          ok: true,
+          json: async () => ({
+            Browser: "EvilServer/1.0",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9999/fake",
+          }),
+        }),
+      );
+      const login = makeLogin({ fetchFn, discoveryTimeoutMs: 500 });
+
+      // When / Then: throws instead of connecting to attacker
+      await expect(login.getWebSocketUrl()).rejects.toThrow(/unexpected Browser identity/);
+    });
+
+    test("accepts legitimate Chromium-family Browser identities", async () => {
+      // Given: realistic Chrome /json/version response
+      const fetchFn = mock(
+        async (): Promise<CdpFetchResponse> => ({
+          ok: true,
+          json: async () => ({
+            Browser: "Chrome/122.0.6261.94",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/abc",
+          }),
+        }),
+      );
+      const login = makeLogin({ fetchFn });
+
+      // When / Then
+      const ws = await login.getWebSocketUrl();
+      expect(ws).toBe("ws://127.0.0.1:9999/devtools/browser/abc");
+    });
+
+    test("rejects webSocketDebuggerUrl that points off-host or off-port", async () => {
+      // Given: Chrome-looking endpoint that redirects WS to attacker.example.com
+      const fetchFn = mock(
+        async (): Promise<CdpFetchResponse> => ({
+          ok: true,
+          json: async () => ({
+            Browser: "Chrome/122.0.6261.94",
+            webSocketDebuggerUrl: "ws://attacker.example.com:9999/devtools/browser/abc",
+          }),
+        }),
+      );
+      const login = makeLogin({ fetchFn, discoveryTimeoutMs: 500 });
+
+      // When / Then
+      await expect(login.getWebSocketUrl()).rejects.toThrow(/not ws:\/\/127\.0\.0\.1:9999/);
+    });
+
+    test("rejects webSocketDebuggerUrl on a different port than we launched", async () => {
+      // Given: port mismatch (e.g. Chrome reports a different port → squatter)
+      const fetchFn = mock(
+        async (): Promise<CdpFetchResponse> => ({
+          ok: true,
+          json: async () => ({
+            Browser: "Chrome/122.0.6261.94",
+            webSocketDebuggerUrl: "ws://127.0.0.1:1234/devtools/browser/abc",
+          }),
+        }),
+      );
+      const login = makeLogin({ port: 9999, fetchFn, discoveryTimeoutMs: 500 });
+
+      // When / Then
+      await expect(login.getWebSocketUrl()).rejects.toThrow(/not ws:\/\/127\.0\.0\.1:9999/);
+    });
+  });
 });
 
 // --- waitForLogin ---------------------------------------------------------
@@ -388,6 +460,102 @@ describe("login", () => {
     expect(ws.closed).toBe(true);
     expect(child.killed).toBe(true);
     expect(child.killSignal).toBe("SIGTERM");
+  });
+
+  // Security (SECURITY-AUDIT-REPORT S-13): validateTokenFn hook for
+  // defeating an attacker that injected a bogus token through a port squat.
+  test("throws and cleans up when validateTokenFn rejects the captured token", async () => {
+    const child = new FakeChildProcess();
+    const ws = new FakeWebSocket();
+    const spawnFn = mock(() => child);
+    const fetchFn = mock(
+      async (): Promise<CdpFetchResponse> => ({
+        ok: true,
+        json: async () => ({
+          Browser: "Chrome/122.0.6261.94",
+          webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/x",
+        }),
+      }),
+    );
+    const createWebSocketFn = mock(() => ws);
+    const validateTokenFn = mock(async () => false); // reject
+
+    const login = new CdpBrowserLogin({
+      logger: silentLogger(),
+      userDataDir: "/tmp/akiflow-test-profile",
+      port: 9999,
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      loginTimeoutMs: 1_000,
+      discoveryTimeoutMs: 200,
+      spawnFn,
+      fetchFn,
+      createWebSocketFn,
+      validateTokenFn,
+    });
+
+    const promise = login.login();
+    await new Promise((r) => setTimeout(r, 20));
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: { requestId: "r1", response: { url: "https://api.akiflow.com/user/me" } },
+    });
+    ws.emitMessage({ method: "Network.loadingFinished", params: { requestId: "r1" } });
+    const cmd = ws.sentCommand(ws.sent.length - 1);
+    ws.emitMessage({
+      id: cmd.id,
+      result: { body: JSON.stringify({ access_token: "attacker-injected" }), base64Encoded: false },
+    });
+
+    await expect(promise).rejects.toThrow(/failed validation/);
+    expect(validateTokenFn).toHaveBeenCalledTimes(1);
+    // Cleanup still happens in the finally block
+    expect(ws.closed).toBe(true);
+    expect(child.killed).toBe(true);
+  });
+
+  test("accepts token when validateTokenFn returns true", async () => {
+    const child = new FakeChildProcess();
+    const ws = new FakeWebSocket();
+    const validateTokenFn = mock(async () => true);
+    const login = new CdpBrowserLogin({
+      logger: silentLogger(),
+      userDataDir: "/tmp/akiflow-test-profile",
+      port: 9999,
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      loginTimeoutMs: 1_000,
+      discoveryTimeoutMs: 200,
+      spawnFn: mock(() => child),
+      fetchFn: mock(
+        async (): Promise<CdpFetchResponse> => ({
+          ok: true,
+          json: async () => ({
+            Browser: "Chrome/122.0.6261.94",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/x",
+          }),
+        }),
+      ),
+      createWebSocketFn: mock(() => ws),
+      validateTokenFn,
+    });
+
+    const promise = login.login();
+    await new Promise((r) => setTimeout(r, 20));
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: { requestId: "r1", response: { url: "https://api.akiflow.com/user/me" } },
+    });
+    ws.emitMessage({ method: "Network.loadingFinished", params: { requestId: "r1" } });
+    const cmd = ws.sentCommand(ws.sent.length - 1);
+    ws.emitMessage({
+      id: cmd.id,
+      result: { body: JSON.stringify({ access_token: "valid-token" }), base64Encoded: false },
+    });
+
+    const token = await promise;
+    expect(token?.accessToken).toBe("valid-token");
+    expect(validateTokenFn).toHaveBeenCalledTimes(1);
   });
 });
 

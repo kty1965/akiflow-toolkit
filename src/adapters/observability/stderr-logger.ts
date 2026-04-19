@@ -4,7 +4,7 @@
 // and MCP JSON-RPC. Masks JWT/refresh_token patterns in context.
 // ---------------------------------------------------------------------------
 
-import type { LoggerPort, LogLevel } from "../../core/ports/logger-port.ts";
+import type { LoggerPort, LogLevel } from "@core/ports/logger-port.ts";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   trace: 10,
@@ -28,9 +28,23 @@ const MASK_KEYS = new Set([
 
 const MASK_PATTERNS: RegExp[] = [/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, /def50200[a-f0-9]{20,}/g];
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberate — detects raw-binary secrets (e.g. decrypted Laravel session cookies) that escape MASK_PATTERNS. See SECURITY-AUDIT-REPORT S-5.
+const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+const BINARY_THRESHOLD_RATIO = 0.1;
+const BINARY_MIN_LENGTH = 16;
+
 function maskString(value: string): string {
   let out = value;
   for (const p of MASK_PATTERNS) out = out.replace(p, "***");
+  // Defense-in-depth: collapse strings dominated by non-printable bytes. A
+  // legitimate human-readable log line has <1% control chars; a decrypted
+  // binary secret leaking via `${token}` interpolation has >>10%.
+  if (out.length >= BINARY_MIN_LENGTH) {
+    const matches = out.match(CONTROL_CHAR_RE);
+    if (matches && matches.length / out.length > BINARY_THRESHOLD_RATIO) {
+      return `<binary:${out.length} bytes, ${matches.length} control>`;
+    }
+  }
   return out;
 }
 

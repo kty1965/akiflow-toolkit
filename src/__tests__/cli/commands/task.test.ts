@@ -13,11 +13,11 @@ import {
   type TaskCommandComponents,
   type TaskWriteApi,
   validateRecurrence,
-} from "../../../cli/commands/task.ts";
-import { NotFoundError, ValidationError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { UpdateTaskInput } from "../../../core/services/task-command-service.ts";
-import type { Task } from "../../../core/types.ts";
+} from "@cli/commands/task.ts";
+import { NotFoundError, ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

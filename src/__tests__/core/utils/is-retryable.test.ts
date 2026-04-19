@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AuthError, AuthExpiredError, NetworkError, ValidationError } from "../../../core/errors/index.ts";
-import { isRetryable } from "../../../core/utils/is-retryable.ts";
+import { AuthError, AuthExpiredError, NetworkError, ValidationError } from "@core/errors/index.ts";
+import { isRetryable } from "@core/utils/is-retryable.ts";
 
 describe("core/utils/is-retryable", () => {
   describe("NetworkError", () => {

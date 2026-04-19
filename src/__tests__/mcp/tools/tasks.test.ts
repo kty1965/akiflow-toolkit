@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { AuthError, NetworkError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { Task, TaskQueryOptions } from "@core/types.ts";
+import { registerTaskTools, type TaskToolsDeps } from "@mcp/tools/tasks.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AuthError, NetworkError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { CreateTaskInput, UpdateTaskInput } from "../../../core/services/task-command-service.ts";
-import type { Task, TaskQueryOptions } from "../../../core/types.ts";
-import { registerTaskTools, type TaskToolsDeps } from "../../../mcp/tools/tasks.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -59,6 +59,8 @@ function buildDeps(overrides: { query?: QueryStub; command?: CommandStub } = {})
     updateTask:
       overrides.command?.updateTask ?? (async (id, patch) => buildTask({ id, title: patch.title ?? "Sample task" })),
     completeTask: overrides.command?.completeTask ?? (async (id) => buildTask({ id, done: true, status: 1 })),
+    deleteTask:
+      overrides.command?.deleteTask ?? (async (id) => buildTask({ id, deleted_at: "2026-04-17T00:00:00.000Z" })),
   };
   return { taskQuery: query, taskCommand: command, logger: silentLogger };
 }
@@ -94,7 +96,7 @@ describe("mcp/tools/tasks", () => {
   });
 
   describe("tool registration", () => {
-    test("registers exactly the five task tools with ADR-0007 annotations", async () => {
+    test("registers exactly the six task tools with ADR-0007 annotations", async () => {
       // Given: tasks tools registered
       registerTaskTools(server, buildDeps());
       client = await connectClient(server);
@@ -103,8 +105,10 @@ describe("mcp/tools/tasks", () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
-      // Then: all 5 expected names are present and annotations follow the spec
-      expect(names).toEqual(["complete_task", "create_task", "get_tasks", "search_tasks", "update_task"].sort());
+      // Then: all 6 expected names are present and annotations follow the spec
+      expect(names).toEqual(
+        ["complete_task", "create_task", "delete_task", "get_tasks", "search_tasks", "update_task"].sort(),
+      );
 
       const get = tools.find((t) => t.name === "get_tasks");
       expect(get?.annotations?.readOnlyHint).toBe(true);
@@ -122,6 +126,11 @@ describe("mcp/tools/tasks", () => {
 
       const update = tools.find((t) => t.name === "update_task");
       expect(update?.annotations?.idempotentHint).toBe(true);
+
+      const del = tools.find((t) => t.name === "delete_task");
+      expect(del?.annotations?.destructiveHint).toBe(true);
+      expect(del?.annotations?.idempotentHint).toBe(true);
+      expect(del?.description ?? "").toContain("Examples:");
     });
   });
 
@@ -484,6 +493,63 @@ describe("mcp/tools/tasks", () => {
       expect(ids).toEqual(["abc"]);
       expect(textOf(result)).toContain("Completed");
       expect(textOf(result)).toContain("✓");
+    });
+  });
+
+  describe("delete_task", () => {
+    test("calls deleteTask(id) and returns Deleted summary", async () => {
+      // Given: deleteTask stub records id
+      const ids: string[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            deleteTask: async (id) => {
+              ids.push(id);
+              return buildTask({ id, title: "Obsolete", deleted_at: "2026-04-17T00:00:00.000Z" });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: deleting the task
+      const result = await client.callTool({
+        name: "delete_task",
+        arguments: { id: "zzz" },
+      });
+
+      // Then: service receives id, output uses "Deleted" verb + task id
+      expect(ids).toEqual(["zzz"]);
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain("Deleted");
+      expect(text).toContain("zzz");
+    });
+
+    test("AkiflowError → isError with hint line", async () => {
+      // Given: deleteTask throws NetworkError
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            deleteTask: async () => {
+              throw new NetworkError("connection refused");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: "delete_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError flag and userMessage surface
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("네트워크");
     });
   });
 });

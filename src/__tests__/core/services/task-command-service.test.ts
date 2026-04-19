@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { ApiSchemaError, NetworkError } from "../../../core/errors/index.ts";
-import type { AkiflowHttpPort } from "../../../core/ports/akiflow-http-port.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { StoragePort } from "../../../core/ports/storage-port.ts";
-import { AuthService } from "../../../core/services/auth-service.ts";
-import { TaskCommandService } from "../../../core/services/task-command-service.ts";
+import { ApiSchemaError, NetworkError } from "@core/errors/index.ts";
+import type { AkiflowHttpPort } from "@core/ports/akiflow-http-port.ts";
+import type { CacheMeta, CachePort, PendingEntry } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { StoragePort } from "@core/ports/storage-port.ts";
+import { AuthService } from "@core/services/auth-service.ts";
+import { TaskCommandService } from "@core/services/task-command-service.ts";
 import type {
   ApiResponse,
   Calendar,
@@ -16,7 +17,7 @@ import type {
   Task,
   TimeSlot,
   UpdateTaskPayload,
-} from "../../../core/types.ts";
+} from "@core/types.ts";
 
 function createLogger(): LoggerPort {
   return {
@@ -283,6 +284,151 @@ describe("TaskCommandService", () => {
       expect(payload.id).toBe("id-1");
       expect(typeof payload.deleted_at).toBe("string");
       expect(payload.deleted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Cache integration — write methods must merge the server response into
+  // the read cache so subsequent TaskQueryService.listTasks sees the write
+  // immediately (read-your-writes consistency within the same process).
+  // -------------------------------------------------------------------------
+
+  describe("cache integration (read-your-writes)", () => {
+    interface CacheStub extends CachePort {
+      upsertCalls: Task[];
+    }
+
+    function createCacheStub(overrides: Partial<Pick<CachePort, "upsertTask">> = {}): CacheStub {
+      const upsertCalls: Task[] = [];
+      const stub: CacheStub = {
+        upsertCalls,
+        async upsertTask(task) {
+          upsertCalls.push(task);
+          if (overrides.upsertTask) await overrides.upsertTask(task);
+        },
+        async getTasks() {
+          return [];
+        },
+        async setTasks() {},
+        async removeTask() {},
+        async getMeta(): Promise<CacheMeta | null> {
+          return null;
+        },
+        async setMeta() {},
+        async saveShortIdMap() {},
+        async resolveShortId() {
+          return null;
+        },
+        async enqueuePending() {},
+        async getPending(): Promise<PendingEntry[]> {
+          return [];
+        },
+        async removePending() {},
+        async clearAll() {},
+        getCacheDir() {
+          return "/tmp/test-cache";
+        },
+      };
+      return stub;
+    }
+
+    test("createTask upserts the returned task into the cache", async () => {
+      // Given: http echoes the payload back as the created task
+      const { port } = createHttp(async ({ tasks }) => ({
+        success: true,
+        message: null,
+        data: tasks.map((t) => makeTask({ id: t.id, title: (t as CreateTaskPayload).title })),
+      }));
+      const cache = createCacheStub();
+      const service = new TaskCommandService({
+        auth: buildAuth(),
+        http: port,
+        logger: createLogger(),
+        cache,
+      });
+
+      // When: createTask succeeds
+      const task = await service.createTask({ title: "write-through" });
+
+      // Then: cache.upsertTask was called exactly once with the server-returned task
+      expect(cache.upsertCalls).toHaveLength(1);
+      expect(cache.upsertCalls[0]).toBe(task);
+      expect(cache.upsertCalls[0].title).toBe("write-through");
+    });
+
+    test("updateTask, completeTask, scheduleTask, unscheduleTask, deleteTask all upsert", async () => {
+      // Given: a shared cache stub across successive writes
+      const { port } = createHttp();
+      const cache = createCacheStub();
+      const service = new TaskCommandService({
+        auth: buildAuth(),
+        http: port,
+        logger: createLogger(),
+        cache,
+      });
+
+      // When: one of each write method is invoked
+      await service.updateTask("id-u", { title: "renamed" });
+      await service.completeTask("id-c");
+      await service.scheduleTask("id-s", "2026-04-20", "09:00");
+      await service.unscheduleTask("id-us");
+      await service.deleteTask("id-d");
+
+      // Then: cache.upsertTask fired once per write, in order, with matching ids
+      expect(cache.upsertCalls.map((t) => t.id)).toEqual(["id-u", "id-c", "id-s", "id-us", "id-d"]);
+    });
+
+    test("cache is optional — service works without a cache port (undefined)", async () => {
+      // Given: no cache injected (production behavior for callers that opt out)
+      const { port } = createHttp();
+      const service = new TaskCommandService({
+        auth: buildAuth(),
+        http: port,
+        logger: createLogger(),
+      });
+
+      // When / Then: write completes without throwing
+      const task = await service.createTask({ title: "no-cache" });
+      expect(task.id).toMatch(/^[0-9a-f-]{36}$/i);
+    });
+
+    test("cache.upsertTask throwing does not fail the write (logged then swallowed)", async () => {
+      // Given: cache that fails on upsert
+      const { port } = createHttp();
+      const cache = createCacheStub({
+        upsertTask: async () => {
+          throw new Error("disk full");
+        },
+      });
+      const service = new TaskCommandService({
+        auth: buildAuth(),
+        http: port,
+        logger: createLogger(),
+        cache,
+      });
+
+      // When: createTask — should not propagate the cache error
+      const task = await service.createTask({ title: "cache-ignored" });
+
+      // Then: server task still returned, and we still attempted the upsert
+      expect(task.id).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(cache.upsertCalls).toHaveLength(1); // our stub records before the override throws
+    });
+
+    test("ApiSchemaError (empty response) short-circuits before touching cache", async () => {
+      // Given: empty server response
+      const { port } = createHttp(async () => ({ success: true, message: null, data: [] }));
+      const cache = createCacheStub();
+      const service = new TaskCommandService({
+        auth: buildAuth(),
+        http: port,
+        logger: createLogger(),
+        cache,
+      });
+
+      // When / Then: ApiSchemaError and cache was NOT touched
+      await expect(service.createTask({ title: "x" })).rejects.toBeInstanceOf(ApiSchemaError);
+      expect(cache.upsertCalls).toHaveLength(0);
     });
   });
 });

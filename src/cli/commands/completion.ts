@@ -5,9 +5,9 @@
 // See L2 note: prefer `>>` (append) over `>` to avoid clobbering ~/.zshrc.
 // ---------------------------------------------------------------------------
 
+import { ValidationError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
 import { defineCommand } from "citty";
-import { ValidationError } from "../../core/errors/index.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
 import { handleCliError } from "../app.ts";
 
 export type SupportedShell = "bash" | "zsh" | "fish";

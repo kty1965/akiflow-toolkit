@@ -6,9 +6,9 @@
 // cohesive (ADR-0007).
 // ---------------------------------------------------------------------------
 
+import type { AppComponents } from "@composition";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { AppComponents } from "../composition.ts";
 import { registerAuthStatusTool } from "./tools/auth-status.ts";
 import { registerCalendarTools } from "./tools/calendar.ts";
 import { registerOrganizeTools } from "./tools/organize.ts";

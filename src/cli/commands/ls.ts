@@ -3,10 +3,10 @@
 // Output: text → stdout (short IDs saved to cache); JSON → stdout if --json
 // ---------------------------------------------------------------------------
 
+import type { CachePort } from "@core/ports/cache-port.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { Task, TaskQueryOptions } from "@core/types.ts";
 import { defineCommand } from "citty";
-import type { CachePort } from "../../core/ports/cache-port.ts";
-import type { LoggerPort } from "../../core/ports/logger-port.ts";
-import type { Task, TaskQueryOptions } from "../../core/types.ts";
 import { handleCliError } from "../app.ts";
 
 export interface TaskQueryApi {

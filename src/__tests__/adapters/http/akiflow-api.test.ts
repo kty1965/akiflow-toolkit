@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AkiflowHttpAdapter } from "../../../adapters/http/akiflow-api.ts";
-import { ApiSchemaError, NetworkError } from "../../../core/errors/index.ts";
-import type { LoggerPort } from "../../../core/ports/logger-port.ts";
-import type { ApiResponse, Task } from "../../../core/types.ts";
+import { AkiflowHttpAdapter } from "@adapters/http/akiflow-api.ts";
+import { ApiSchemaError, NetworkError } from "@core/errors/index.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import type { ApiResponse, Task } from "@core/types.ts";
 
 const originalFetch = globalThis.fetch;
 

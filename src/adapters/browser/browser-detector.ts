@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { BrowserProfile } from "../../core/browser-paths.ts";
+import type { BrowserProfile } from "@core/browser-paths.ts";
 
 interface BrowserConfig {
   name: string;
@@ -33,7 +33,17 @@ const MACOS_BROWSERS: BrowserConfig[] = [
   },
 ];
 
-const AKIFLOW_INDEXEDDB_DIR = "IndexedDB/https_web.akiflow.com_0.indexeddb.leveldb";
+/**
+ * Candidate IndexedDB leveldb directories to scan for Akiflow tokens, in
+ * priority order. Akiflow split its SPA across multiple origins over time;
+ * `auth.akiflow.com` is the current home of OAuth tokens, `web.akiflow.com`
+ * is the legacy main app, and `product.akiflow.com` holds newer app state.
+ */
+const AKIFLOW_INDEXEDDB_DIRS = [
+  "IndexedDB/https_auth.akiflow.com_0.indexeddb.leveldb",
+  "IndexedDB/https_web.akiflow.com_0.indexeddb.leveldb",
+  "IndexedDB/https_product.akiflow.com_0.indexeddb.leveldb",
+] as const;
 
 export function detectBrowsers(home?: string): BrowserProfile[] {
   const h = home ?? homedir();
@@ -48,7 +58,7 @@ export function detectBrowsers(home?: string): BrowserProfile[] {
       name: browser.name,
       profilePath,
       cookiesDb: join(profilePath, "Cookies"),
-      indexedDbPath: join(profilePath, AKIFLOW_INDEXEDDB_DIR),
+      indexedDbPaths: AKIFLOW_INDEXEDDB_DIRS.map((rel) => join(profilePath, rel)),
       keychainService: browser.keychainService,
     });
   }
