@@ -8,7 +8,7 @@ Unofficial CLI and MCP server for [Akiflow](https://akiflow.com), enabling termi
 
 ## Status
 
-**Pre-alpha** — Under active development. Not yet published to npm.
+**Alpha** — Published to npm as `akiflow-toolkit`. Requires **[Bun](https://bun.sh) 1.1+** runtime.
 
 ## Planned Features
 
@@ -16,7 +16,7 @@ Unofficial CLI and MCP server for [Akiflow](https://akiflow.com), enabling termi
 - **MCP Server** (`af --mcp`): AI agent integration via Model Context Protocol
 - **Auto Authentication**: Extracts tokens from browser data (IndexedDB, cookies) — no manual DevTools copy
 - **Token Auto-Recovery**: 3-tier recovery when tokens expire (refresh → disk reload → browser re-extract)
-- **Cross-browser**: Chrome, Arc, Brave, Edge, Safari support
+- **Cross-browser**: Chrome, Arc, Brave, Edge, Safari support (macOS)
 
 ## Architecture
 
@@ -25,18 +25,91 @@ Key decisions are documented as Architecture Decision Records (ADRs):
 - [ADR Index](./docs/adr/README.md) — All 15 ADRs
 - Highlights: Bun runtime, Hexagonal (Ports & Adapters), Outcome-first MCP Tools, semantic-release, Test Diamond
 
+## Runtime Requirement — **Bun Only**
+
+`akiflow-toolkit`은 [Bun](https://bun.sh) runtime 전용 CLI입니다. Node.js로는 실행할 수 없습니다.
+
+- 배포 번들이 `bun:sqlite` 등 Bun 네이티브 모듈을 직접 사용합니다 (Chrome cookie DB 파싱 용도).
+- shebang이 `#!/usr/bin/env bun`으로 고정되어 있습니다.
+- Bun은 Node.js 호환 API를 대부분 지원하므로 기능적 제약은 거의 없습니다.
+
+> Node.js 지원이 필요하면 `better-sqlite3`로 교체하는 별도 마이그레이션이 필요합니다 ([docs/tasks/](./docs/tasks/) 참고).
+
 ## Installation
 
-> Not yet published to npm. Currently development-only.
+### Prerequisites
+
+Bun 1.1+ 설치:
+```bash
+# macOS / Linux
+curl -fsSL https://bun.sh/install | bash
+
+# Windows (PowerShell)
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+
+### Install CLI
 
 ```bash
-# npm (after publish)
-npm install -g akiflow-toolkit
+bun install -g akiflow-toolkit
+af --help
+```
 
-# Bun (after publish)
+## Platform Support
+
+| Platform | Runtime | CLI core | MCP server | Auto auth (browser) | Status |
+|----------|---------|----------|-----------|---------------------|--------|
+| **macOS** (arm64/x64) | Bun 1.1+ | ✅ | ✅ | ✅ Chrome/Arc/Brave/Edge/Safari | **Fully supported** |
+| **Linux** (x64/arm64) | Bun 1.1+ | ✅ | ✅ | ❌ (manual `af auth` only) | **Partial** — see [docs/tasks/linux-support.md](./docs/tasks/linux-support.md) |
+| **Windows** (x64) | Bun 1.1+ | ✅ | ✅ | ❌ (manual `af auth` only) | **Partial** — see [docs/tasks/windows-support.md](./docs/tasks/windows-support.md) |
+
+### macOS
+
+자동 인증 포함 전체 기능이 동작합니다.
+
+```bash
+bun install -g akiflow-toolkit
+af auth        # Chrome/Arc/Brave/Edge/Safari에서 자동 토큰 추출
+af ls
+```
+
+### Linux
+
+CLI 및 MCP는 정상 동작합니다. Chrome cookie 자동 추출은 미구현(libsecret 미연동)이므로 수동 인증을 사용합니다.
+
+```bash
 bun install -g akiflow-toolkit
 
-# From source (now)
+# 수동 인증: Akiflow 웹 로그인 후 DevTools → Network → request headers에서
+# Bearer <JWT>를 복사해 붙여넣기
+af auth
+
+af ls
+```
+
+제약 사항:
+- Chrome cookie 기반 auto-auth 미지원
+- Safari 관련 기능 없음 (Apple 전용 브라우저)
+
+### Windows
+
+CLI 및 MCP는 동작합니다. DPAPI(Windows 쿠키 암호화) 미연동으로 Chrome cookie 자동 추출은 불가능.
+
+PowerShell에서:
+```powershell
+bun install -g akiflow-toolkit
+af auth        # 수동 입력
+af ls
+```
+
+제약 사항:
+- Bun Windows arm64는 실험 단계 (x64 권장)
+- PowerShell용 completion 스크립트 미제공 (bash/zsh/fish만 지원)
+- Chrome cookie 기반 auto-auth 미지원
+
+### From Source (development)
+
+```bash
 git clone https://github.com/kty1965/akiflow-toolkit.git
 cd akiflow-toolkit
 bun install
