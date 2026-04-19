@@ -1,6 +1,6 @@
 {
   "name": "akiflow-toolkit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Unofficial Akiflow CLI + MCP server toolkit for AI-powered task management",
   "type": "module",
   "main": "./dist/index.js",
