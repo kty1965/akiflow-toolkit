@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.1.0...v1.1.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **deps:** scope zod override to mcp-sdk transitive only ([#53](https://github.com/kty1965/akiflow-toolkit/issues/53)) ([5948a35](https://github.com/kty1965/akiflow-toolkit/commit/5948a35653251f3e73a44fd8688aa1768953171c))
+
 # [1.1.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.0.5...v1.1.0) (2026-04-20)
 
 
