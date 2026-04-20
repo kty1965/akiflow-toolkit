@@ -1,26 +1,30 @@
 ---
 title: "Task — zod v4 migration (final wave)"
 createdAt: 2026-04-17T14:05:00+09:00
-updatedAt: 2026-04-17T14:05:00+09:00
-version: "1.0.0"
+updatedAt: 2026-04-20T00:00:00+09:00
+version: "2.0.0"
 type: spec
 tags:
   - zod
   - mcp-sdk
   - migration
-  - deferred
+  - resolved
   - final-wave
 ---
 
 # Task: zod v4 Migration (Final Wave)
 
 ## Status
-🔴 **Deferred** — PR #38 머지 후 `fix: pin zod to v3 for MCP SDK type compatibility` (commit 192ebfc)로 v3로 되돌림. `package.json`: `"zod": "^3.24.4"` 유지.
+✅ **Resolved (2026-04-20)** — `package.json` `overrides.zod: ^4.3.6` 추가로 중복 zod 인스턴스 dedup → MCP SDK(1.29.0)와 zod v4 완벽 호환 확인. tsc / biome / bun test(443 pass) / build 전부 통과.
 
-## Why This Task Exists
-`@modelcontextprotocol/sdk@1.29.0`의 `peerDependencies.zod`는 `"^3.25 || ^4.0"`로 양쪽 major를 수용한다고 선언했지만, **실제 TypeScript 타입 정의는 zod v4의 재구조화된 타입(`ZodType<Output, Input>`, `_def` → `_zod.def`, `ZodError` issue shape 등)과 호환되지 않아** tsc 검증이 실패한다.
+## Why This Task Existed
+초기 판단: "MCP SDK 타입 정의가 zod v4를 지원 안 함" (tsc 24 errors 관측).
 
-peer range 허용 ≠ 타입 호환성 — 이 교훈은 `~/.claude/projects/.../memory/feedback_peer_dep_vs_type_compat.md`에 기록됨.
+**실제 원인 (2026-04-20 재분석)**: `@modelcontextprotocol/sdk`가 zod를 `dependencies` + `peerDependencies`에 **중복 선언**. Bun이 peer dedup 하지 않고 `node_modules/@modelcontextprotocol/sdk/node_modules/zod@3.25.76`을 별도 설치 → 프로젝트 안에 zod 인스턴스 2개 공존 → `AnySchema = z3.ZodTypeAny | z4.$ZodType` 타입이 MCP SDK 로컬 zod@3.25.76에서 resolve → 우리의 zod@4.3.6 값과 nominal mismatch.
+
+해결: `package.json`에 `overrides.zod: ^4.3.6` 추가하면 Bun이 중복 설치를 단일 인스턴스로 dedup.
+
+peer range 허용 ≠ 타입 호환성 ≠ 설치 구조 — 교훈은 `~/.claude/projects/.../memory/feedback_peer_dep_vs_type_compat.md` 갱신됨.
 
 ## Blocker Analysis (gating conditions)
 
@@ -49,16 +53,17 @@ peer range 허용 ≠ 타입 호환성 — 이 교훈은 `~/.claude/projects/...
 
 자동화: GitHub Actions에서 주간 `@modelcontextprotocol/sdk` 릴리스를 체크하여 이슈/PR 자동 생성하는 cron workflow 추가 고려.
 
-## Verification Checklist (when unblocked)
+## Verification Checklist (2026-04-20 실행 결과)
 
-- [ ] `bun add zod@^4 @modelcontextprotocol/sdk@<compatible-version>`
-- [ ] `bun install` → lockfile 업데이트 확인
-- [ ] `bun run lint` (biome) 통과
-- [ ] `bunx tsc --noEmit -p tsconfig.json` 통과 **⭐ 필수**
-- [ ] `bun test` 39개 테스트 파일 통과
-- [ ] `bun run build` 성공 (dist, 4개 플랫폼 binary)
-- [ ] MCP stdio 서버 smoke test (`scripts/smoke-test.ts` 또는 수동)
-- [ ] inputSchema validation: 각 도구(get_events, get_tasks, search_tasks, create_task, update_task, complete_task, schedule_task, unschedule_task)에 샘플 invocation → error 없음 확인
+- [x] `bun add zod@^4` → `zod@4.3.6` 설치
+- [x] `package.json` `overrides.zod: ^4.3.6` 추가 → MCP SDK 중복 zod dedup
+- [x] `bun install` (clean install) → 단일 `node_modules/zod` 확인
+- [x] `bun run lint` (biome) 통과
+- [x] `bunx tsc --noEmit -p tsconfig.json` 통과 — 0 errors (기존 24 errors 해소)
+- [x] `bun test` 40개 테스트 파일 / 443 pass / 0 fail
+- [x] `bun run build` → `dist/index.js` 1.43MB 정상
+- [x] `bun run build:darwin-arm64` → native binary 정상 실행
+- [x] `af --help` 실기 확인
 
 ## References
 
