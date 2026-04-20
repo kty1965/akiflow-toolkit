@@ -32,7 +32,7 @@ tags:
 | **W11** — Auth flow 문서화 | ✅ | `docs/akiflow-token-acquisition.md` | Mermaid 다이어그램 5종 |
 | **W12** — TypeScript path aliases | ✅ | `@core @adapters @mcp @cli` (216 imports / 69 files) | TASK-typescript-path-aliases.md |
 | **W13** — Security audit | ✅ | Pre-publish 위협 모델 + S-1/S-2 fix | TASK-security-audit.md · SECURITY-AUDIT-REPORT.md |
-| **W∞** — zod v4 migration | 🔴 Deferred | TASK-zod-v4-migration.md | 마지막 Wave |
+| **W∞** — zod v4 migration | ✅ Resolved (2026-04-20) | TASK-zod-v4-migration.md | overrides.zod dedup으로 해제 |
 
 ---
 
