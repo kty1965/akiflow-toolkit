@@ -37,6 +37,7 @@ const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
 export function registerTaskTools(server: McpServer, deps: TaskToolsDeps): void {
   registerGetTasks(server, deps);
+  registerGetTask(server, deps);
   registerSearchTasks(server, deps);
   registerCreateTask(server, deps);
   registerUpdateTask(server, deps);
@@ -59,6 +60,10 @@ const GetTasksInputShape = {
     .optional()
     .describe("Preset filter: today (scheduled today), inbox (no date), done (completed), all"),
   project: z.string().optional().describe("Project/list ID to restrict results to"),
+  includeNotes: z
+    .boolean()
+    .optional()
+    .describe("Include first 200 chars of each task's notes/description in output (default: false)"),
 } as const;
 
 function registerGetTasks(server: McpServer, deps: TaskToolsDeps): void {
@@ -88,9 +93,51 @@ function registerGetTasks(server: McpServer, deps: TaskToolsDeps): void {
         if (args.project) options.project = args.project;
 
         const tasks = await deps.taskQuery.listTasks(options);
-        return textResult(formatTaskList(tasks, summariseFilter(args)));
+        return textResult(formatTaskList(tasks, summariseFilter(args), { includeNotes: args.includeNotes ?? false }));
       } catch (err) {
         return toolError(err, deps, "get_tasks");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// get_task — read (single task with full detail incl. description/notes)
+// ---------------------------------------------------------------------------
+
+const GetTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to fetch"),
+} as const;
+
+function registerGetTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "get_task",
+    {
+      description:
+        "Fetch a single Akiflow task by ID and return its full detail, including notes/description, " +
+        "priority, labels, tags, and schedule. Use when the user asks to read a task's notes or " +
+        "needs the body content beyond the title, e.g. 'show me the notes on task X' or " +
+        "'이 태스크 내용 보여줘'.\n\n" +
+        "Examples:\n" +
+        "- 'Show task detail' → { id: '<uuid>' }\n" +
+        "- 'Read the notes on this task' → { id: '<uuid>' }\n" +
+        "- '이 태스크 본문 읽어줘' → { id: '<uuid>' }",
+      inputSchema: GetTaskInputShape,
+      annotations: {
+        title: "Get task detail",
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskQuery.getTaskById(args.id);
+        if (!task) {
+          return textResult(`get_task: task not found — id=${args.id}`, true);
+        }
+        return textResult(formatTaskDetail(task));
+      } catch (err) {
+        return toolError(err, deps, "get_task");
       }
     },
   );
@@ -104,6 +151,10 @@ const SearchTasksInputShape = {
   query: z.string().min(1).describe("Keyword to search across task titles"),
   project: z.string().optional().describe("Project/list ID to narrow search"),
   label: z.string().optional().describe("Label name or ID to narrow search"),
+  includeNotes: z
+    .boolean()
+    .optional()
+    .describe("Include first 200 chars of each task's notes/description in output (default: false)"),
 } as const;
 
 function registerSearchTasks(server: McpServer, deps: TaskToolsDeps): void {
@@ -137,7 +188,7 @@ function registerSearchTasks(server: McpServer, deps: TaskToolsDeps): void {
         }
 
         const header = `## Search results for "${args.query}" — ${tasks.length} match(es)`;
-        return textResult(formatTaskList(tasks, header));
+        return textResult(formatTaskList(tasks, header, { includeNotes: args.includeNotes ?? false }));
       } catch (err) {
         return toolError(err, deps, "search_tasks");
       }
@@ -396,16 +447,51 @@ export function summariseFilter(args: { date?: string; filter?: string; project?
   return `## Tasks${suffix}`;
 }
 
-export function formatTaskList(tasks: Task[], header: string): string {
+export function formatTaskList(tasks: Task[], header: string, options: { includeNotes?: boolean } = {}): string {
   if (tasks.length === 0) {
     return `${header} — 0\n\n(no matching tasks)`;
   }
-  const lines = tasks.map((t, i) => `${i + 1}. ${formatTaskLine(t)}`);
+  const lines = tasks.map((t, i) => {
+    const head = `${i + 1}. ${formatTaskLine(t)}`;
+    if (options.includeNotes) {
+      const preview = formatNotesPreview(t.description);
+      if (preview) return `${head}\n   notes: ${preview}`;
+    }
+    return head;
+  });
   return `${header} — ${tasks.length}\n\n${lines.join("\n")}`;
 }
 
 export function formatSingleTask(verb: string, task: Task): string {
   return `${verb}: ${formatTaskLine(task)}`;
+}
+
+const NOTES_PREVIEW_LIMIT = 200;
+
+function formatNotesPreview(description: string | null): string | null {
+  if (!description) return null;
+  const normalised = description.replace(/\s+/g, " ").trim();
+  if (!normalised) return null;
+  if (normalised.length <= NOTES_PREVIEW_LIMIT) return normalised;
+  return `${normalised.slice(0, NOTES_PREVIEW_LIMIT)}…`;
+}
+
+export function formatTaskDetail(task: Task): string {
+  const title = task.title ?? "(untitled)";
+  const lines: string[] = [`## Task: ${title}`];
+  lines.push(`- id: ${task.id}`);
+  lines.push(`- when: ${formatWhen(task).trim() || "(inbox)"}`);
+  if (task.duration) lines.push(`- duration: ${Math.round(task.duration / 60_000)}m`);
+  if (task.listId) lines.push(`- project: ${task.listId}`);
+  if (task.priority !== null && task.priority !== undefined) lines.push(`- priority: ${task.priority}`);
+  if (task.labels.length > 0) lines.push(`- labels: ${task.labels.join(", ")}`);
+  if (task.tags.length > 0) lines.push(`- tags: ${task.tags.join(", ")}`);
+  if (task.recurrence) lines.push(`- recurrence: ${task.recurrence}`);
+  lines.push(`- done: ${task.done ? "✓" : "✗"}`);
+  lines.push("");
+  lines.push("### Notes");
+  lines.push(task.description ? task.description : "(no notes)");
+  return lines.join("\n");
 }
 
 function formatTaskLine(task: Task): string {

@@ -62,6 +62,7 @@ describe("MCP server core", () => {
         // Then: the expected tools are registered and no ping stub remains
         for (const expected of [
           "get_tasks",
+          "get_task",
           "search_tasks",
           "create_task",
           "update_task",
@@ -74,6 +75,55 @@ describe("MCP server core", () => {
           expect(names).toContain(expected);
         }
         expect(names).not.toContain("ping");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+
+    test("get_task tool exposes its inputSchema (id required) and read-only annotations end-to-end", async () => {
+      // Given: fully composed server
+      const { server } = build();
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "0.0.0" });
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+      try {
+        // When: listing tools and inspecting get_task metadata
+        const { tools } = await client.listTools();
+        const detail = tools.find((t) => t.name === "get_task");
+
+        // Then: registered with id input + read-only/openWorld annotations
+        expect(detail).toBeDefined();
+        expect(detail?.annotations?.readOnlyHint).toBe(true);
+        expect(detail?.annotations?.openWorldHint).toBe(true);
+        const schema = detail?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+        expect(schema?.properties).toHaveProperty("id");
+        expect(schema?.required).toContain("id");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+
+    test("get_tasks/search_tasks expose includeNotes flag end-to-end", async () => {
+      // Given: fully composed server
+      const { server } = build();
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "0.0.0" });
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+      try {
+        // When: inspecting registered tool schemas
+        const { tools } = await client.listTools();
+        const list = tools.find((t) => t.name === "get_tasks");
+        const search = tools.find((t) => t.name === "search_tasks");
+
+        // Then: includeNotes is in both input schemas
+        const listSchema = list?.inputSchema as { properties?: Record<string, unknown> };
+        const searchSchema = search?.inputSchema as { properties?: Record<string, unknown> };
+        expect(listSchema?.properties).toHaveProperty("includeNotes");
+        expect(searchSchema?.properties).toHaveProperty("includeNotes");
       } finally {
         await client.close();
         await server.close();

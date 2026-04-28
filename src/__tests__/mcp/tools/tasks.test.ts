@@ -96,7 +96,7 @@ describe("mcp/tools/tasks", () => {
   });
 
   describe("tool registration", () => {
-    test("registers exactly the six task tools with ADR-0007 annotations", async () => {
+    test("registers exactly the seven task tools with ADR-0007 annotations", async () => {
       // Given: tasks tools registered
       registerTaskTools(server, buildDeps());
       client = await connectClient(server);
@@ -105,14 +105,19 @@ describe("mcp/tools/tasks", () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
-      // Then: all 6 expected names are present and annotations follow the spec
+      // Then: all 7 expected names are present and annotations follow the spec
       expect(names).toEqual(
-        ["complete_task", "create_task", "delete_task", "get_tasks", "search_tasks", "update_task"].sort(),
+        ["complete_task", "create_task", "delete_task", "get_task", "get_tasks", "search_tasks", "update_task"].sort(),
       );
 
       const get = tools.find((t) => t.name === "get_tasks");
       expect(get?.annotations?.readOnlyHint).toBe(true);
       expect(get?.description ?? "").toContain("Examples:");
+
+      const detail = tools.find((t) => t.name === "get_task");
+      expect(detail?.annotations?.readOnlyHint).toBe(true);
+      expect(detail?.annotations?.openWorldHint).toBe(true);
+      expect(detail?.description ?? "").toContain("notes");
 
       const search = tools.find((t) => t.name === "search_tasks");
       expect(search?.annotations?.readOnlyHint).toBe(true);
@@ -226,6 +231,213 @@ describe("mcp/tools/tasks", () => {
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("get_tasks: unexpected error");
       expect(textOf(result)).toContain("boom");
+    });
+  });
+
+  describe("get_task", () => {
+    test("returns markdown detail including notes/description", async () => {
+      // Given: getTaskById returns a task with description
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            getTaskById: async (id) =>
+              buildTask({
+                id,
+                title: "Write spec",
+                description: "Outline scope, risks, and rollout plan.",
+                priority: 2,
+                tags: ["q2"],
+                labels: ["urgent"],
+                listId: "work",
+              }),
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: fetching by id
+      const result = await client.callTool({
+        name: "get_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: detail markdown surfaces title, metadata, and notes body
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain("## Task: Write spec");
+      expect(text).toContain("- project: work");
+      expect(text).toContain("- priority: 2");
+      expect(text).toContain("- labels: urgent");
+      expect(text).toContain("- tags: q2");
+      expect(text).toContain("### Notes");
+      expect(text).toContain("Outline scope, risks, and rollout plan.");
+    });
+
+    test("missing description renders '(no notes)' placeholder", async () => {
+      // Given: getTaskById returns a task without description
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            getTaskById: async (id) => buildTask({ id, description: null }),
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: fetching by id
+      const result = await client.callTool({
+        name: "get_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: notes section shows placeholder
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("(no notes)");
+    });
+
+    test("not found → isError", async () => {
+      // Given: getTaskById returns null
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: { getTaskById: async () => null },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: fetching unknown id
+      const result = await client.callTool({
+        name: "get_task",
+        arguments: { id: "missing" },
+      });
+
+      // Then: structured error with 'task not found'
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("task not found");
+    });
+
+    test("AkiflowError → isError with userMessage", async () => {
+      // Given: getTaskById throws AuthError
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            getTaskById: async () => {
+              throw new AuthError("expired");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: fetching
+      const result = await client.callTool({
+        name: "get_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError with localized userMessage
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("인증이 필요합니다");
+    });
+  });
+
+  describe("includeNotes flag", () => {
+    test("get_tasks default (false) hides notes preview", async () => {
+      // Given: a task with a description
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            listTasks: async () => [buildTask({ description: "Sensitive notes body" })],
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling without includeNotes
+      const result = await client.callTool({
+        name: "get_tasks",
+        arguments: {},
+      });
+
+      // Then: list does not contain the notes line
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).not.toContain("Sensitive notes body");
+      expect(textOf(result)).not.toContain("notes:");
+    });
+
+    test("get_tasks with includeNotes=true appends notes preview line", async () => {
+      // Given: a task with a description
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            listTasks: async () => [buildTask({ description: "Outline rollout plan" })],
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling with includeNotes=true
+      const result = await client.callTool({
+        name: "get_tasks",
+        arguments: { includeNotes: true },
+      });
+
+      // Then: notes preview is rendered under the task line
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain("notes: Outline rollout plan");
+    });
+
+    test("get_tasks with includeNotes truncates long descriptions with ellipsis", async () => {
+      // Given: a long description (>200 chars)
+      const longBody = "x".repeat(250);
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            listTasks: async () => [buildTask({ description: longBody })],
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling with includeNotes=true
+      const result = await client.callTool({
+        name: "get_tasks",
+        arguments: { includeNotes: true },
+      });
+
+      // Then: preview is truncated with ellipsis marker
+      const text = textOf(result);
+      expect(text).toContain("…");
+      expect(text).not.toContain("x".repeat(250));
+    });
+
+    test("search_tasks with includeNotes=true also renders preview", async () => {
+      // Given: search returns one task with description
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            listTasks: async () => [buildTask({ title: "Write", description: "Inline body" })],
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: searching with includeNotes
+      const result = await client.callTool({
+        name: "search_tasks",
+        arguments: { query: "Write", includeNotes: true },
+      });
+
+      // Then: preview surfaces
+      expect(textOf(result)).toContain("notes: Inline body");
     });
   });
 
