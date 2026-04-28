@@ -27,6 +27,9 @@
     "build:linux-x64": "bun build --compile --minify --target=bun-linux-x64 src/index.ts --outfile dist/af-linux-x64",
     "build:linux-arm64": "bun build --compile --minify --target=bun-linux-arm64 src/index.ts --outfile dist/af-linux-arm64",
     "test": "bun test",
+    "e2e:notes": "bun run scripts/mcp-live-task-notes.ts",
+    "e2e:demo": "bun run scripts/mcp-live-demo.ts",
+    "e2e:live": "bun run e2e:notes && bun run e2e:demo",
     "lint": "bunx @biomejs/biome check src/",
     "lint:fix": "bunx @biomejs/biome check --write src/",
     "commitlint": "bunx --bun commitlint --edit"
