@@ -8,12 +8,13 @@ import type { AppComponents } from "@composition";
 import { AkiflowError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import { defineCommand, runMain } from "citty";
+import pkg from "../../package.json" with { type: "json" };
 
 export function buildCli(components: AppComponents) {
   return defineCommand({
     meta: {
       name: "af",
-      version: "0.0.0-development",
+      version: pkg.version,
       description: "Akiflow CLI + MCP",
     },
     subCommands: {
