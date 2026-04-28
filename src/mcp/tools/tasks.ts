@@ -481,11 +481,14 @@ export function formatTaskDetail(task: Task): string {
   const lines: string[] = [`## Task: ${title}`];
   lines.push(`- id: ${task.id}`);
   lines.push(`- when: ${formatWhen(task).trim() || "(inbox)"}`);
-  if (task.duration) lines.push(`- duration: ${Math.round(task.duration / 60_000)}m`);
+  if (task.duration) {
+    const minutes = Math.round(task.duration / 60_000);
+    if (minutes > 0) lines.push(`- duration: ${minutes}m`);
+  }
   if (task.listId) lines.push(`- project: ${task.listId}`);
   if (task.priority !== null && task.priority !== undefined) lines.push(`- priority: ${task.priority}`);
-  if (task.labels.length > 0) lines.push(`- labels: ${task.labels.join(", ")}`);
-  if (task.tags.length > 0) lines.push(`- tags: ${task.tags.join(", ")}`);
+  if (Array.isArray(task.labels) && task.labels.length > 0) lines.push(`- labels: ${task.labels.join(", ")}`);
+  if (Array.isArray(task.tags) && task.tags.length > 0) lines.push(`- tags: ${task.tags.join(", ")}`);
   if (task.recurrence) lines.push(`- recurrence: ${task.recurrence}`);
   lines.push(`- done: ${task.done ? "✓" : "✗"}`);
   lines.push("");

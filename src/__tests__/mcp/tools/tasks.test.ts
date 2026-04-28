@@ -274,6 +274,43 @@ describe("mcp/tools/tasks", () => {
       expect(text).toContain("Outline scope, risks, and rollout plan.");
     });
 
+    test("tolerates upstream tasks missing labels/tags arrays (regression: API may omit them)", async () => {
+      // Given: real Akiflow responses sometimes omit labels/tags entirely.
+      // Simulate that by deleting the keys from a built task — keeps the value off
+      // the object without lying about its TypeScript type.
+      function buildTaskMissingArrays(id: string): Task {
+        const base = buildTask({ id, title: "Daily Shutdown", description: "wrap up the day" });
+        const bag: Record<string, unknown> = base;
+        delete bag.labels;
+        delete bag.tags;
+        return base;
+      }
+
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            getTaskById: async (id) => buildTaskMissingArrays(id),
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: fetching the task
+      const result = await client.callTool({
+        name: "get_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: handler does not crash; labels/tags lines are simply omitted
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain("## Task: Daily Shutdown");
+      expect(text).toContain("wrap up the day");
+      expect(text).not.toContain("- labels:");
+      expect(text).not.toContain("- tags:");
+    });
+
     test("missing description renders '(no notes)' placeholder", async () => {
       // Given: getTaskById returns a task without description
       registerTaskTools(
