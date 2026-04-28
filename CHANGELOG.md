@@ -1,3 +1,16 @@
+# [1.2.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.1.1...v1.2.0) (2026-04-28)
+
+
+### Bug Fixes
+
+* **mcp:** harden get_task against missing labels/tags and zero-rounded duration ([173583a](https://github.com/kty1965/akiflow-toolkit/commit/173583a60482758500030bc477b781428843f7be))
+
+
+### Features
+
+* **mcp:** expose task notes via get_task and includeNotes flag ([4712857](https://github.com/kty1965/akiflow-toolkit/commit/4712857ff876c4046805aa7ecc45f87f78bfeb1f))
+* **mcp:** expose task notes via get_task and includeNotes flag ([#58](https://github.com/kty1965/akiflow-toolkit/issues/58)) ([15c4452](https://github.com/kty1965/akiflow-toolkit/commit/15c44527ba7b443dbcd32ae9919182e4b8d082eb))
+
 ## [1.1.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.1.0...v1.1.1) (2026-04-20)
 
 
