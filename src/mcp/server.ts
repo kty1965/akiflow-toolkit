@@ -9,6 +9,7 @@
 import type { AppComponents } from "@composition";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import pkg from "../../package.json" with { type: "json" };
 import { registerAuthStatusTool } from "./tools/auth-status.ts";
 import { registerCalendarTools } from "./tools/calendar.ts";
 import { registerOrganizeTools } from "./tools/organize.ts";
@@ -16,7 +17,7 @@ import { registerScheduleTools } from "./tools/schedule.ts";
 import { registerTaskTools } from "./tools/tasks.ts";
 
 export const MCP_SERVER_NAME = "akiflow";
-export const MCP_SERVER_VERSION = "0.0.0-development";
+export const MCP_SERVER_VERSION = pkg.version;
 
 export function buildMcpServer(components: AppComponents): McpServer {
   const server = new McpServer({

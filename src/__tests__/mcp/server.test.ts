@@ -44,7 +44,7 @@ describe("MCP server core", () => {
       // Then: the server is an McpServer and identity constants match expectations
       expect(server).toBeInstanceOf(McpServer);
       expect(MCP_SERVER_NAME).toBe("akiflow");
-      expect(MCP_SERVER_VERSION).toBe("0.0.0-development");
+      expect(MCP_SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+/);
     });
 
     test("registers all task/schedule/calendar tools and does not expose the old ping stub", async () => {
