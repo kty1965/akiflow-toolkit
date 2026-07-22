@@ -5,21 +5,30 @@
 // ---------------------------------------------------------------------------
 
 import { ApiSchemaError, NetworkError } from "@core/errors/index.ts";
-import type { AkiflowHttpPort, ListTasksParams } from "@core/ports/akiflow-http-port.ts";
+import type { AkiflowHttpPort, CreatedTaskFromActionItem, ListTasksParams } from "@core/ports/akiflow-http-port.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type {
+  AkiPageResponse,
   ApiResponse,
   Calendar,
   CalendarEvent,
+  CreateEventInput,
   CreateTaskPayload,
   Label,
+  MeetingBrief,
+  Recording,
   Tag,
   Task,
   TimeSlot,
   UpdateTaskPayload,
 } from "@core/types.ts";
+import { asDataArray, mapCalendar, mapCalendarEvent, mapMeetingBrief, mapRecording } from "./akiflow-mappers.ts";
 
 const BASE_URL = "https://api.akiflow.com";
+// Meeting Assistant (recordings/briefs) lives on a separate Akiflow host —
+// not configurable via AF_API_BASE_URL since it's a fixed internal detail,
+// same precedent as the hardcoded refresh-token URL in token-refresh.ts.
+const AKI_API_BASE_URL = "https://aki.akiflow.com/api/v1";
 
 const BASE_HEADERS = {
   "Akiflow-Platform": "mac",
@@ -38,7 +47,9 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
   ) {}
 
   async request<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+    // AKI Meeting Assistant endpoints pass a full absolute URL (different host);
+    // every other call passes a relative path against `this.baseUrl`.
+    const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const init: RequestInit = {
       method,
       headers: {
@@ -117,19 +128,139 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
   }
 
   async getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>> {
-    const res = await this.request<ApiResponse<CalendarEvent[]>>(
-      "GET",
-      `/v3/events?date=${encodeURIComponent(date)}`,
-      token,
-    );
+    const res = await this.request<ApiResponse<unknown[]>>("GET", `/v3/events?date=${encodeURIComponent(date)}`, token);
     assertApiResponseArray(res, "getEvents");
-    return res;
+    return { ...res, data: res.data.map(mapCalendarEvent) };
   }
 
   async getCalendars(token: string): Promise<ApiResponse<Calendar[]>> {
-    const res = await this.request<ApiResponse<Calendar[]>>("GET", "/v3/calendars", token);
+    const res = await this.request<ApiResponse<unknown[]>>("GET", "/v3/calendars", token);
     assertApiResponseArray(res, "getCalendars");
-    return res;
+    return { ...res, data: res.data.map(mapCalendar) };
+  }
+
+  /**
+   * Create a calendar event. Akiflow's v3 write endpoint requires the full
+   * calendar identity envelope (origin/account/connector ids), so this
+   * resolves the target calendar first and rejects unknown/read-only ones —
+   * mirroring the verified approach in the shrimpwtf/akiflow-mcp reference
+   * (their v5-PATCH attempt 405'd; POST /v3/events with resolved identity is
+   * what actually works).
+   */
+  async createEvent(token: string, input: CreateEventInput): Promise<ApiResponse<CalendarEvent[]>> {
+    const calendars = await this.getCalendars(token);
+    const calendar = calendars.data.find((c) => c.id === input.calendarId);
+    if (!calendar) {
+      throw new ApiSchemaError(`createEvent: calendar ${input.calendarId} not found — call get_calendars first`);
+    }
+    if (calendar.readOnly) {
+      throw new ApiSchemaError(`createEvent: calendar "${calendar.name}" is read-only`);
+    }
+
+    const allDay = input.allDay ?? false;
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+    const nowIso = new Date().toISOString();
+
+    const rawEvent = {
+      id: crypto.randomUUID(),
+      title: input.title,
+      description: input.description ?? null,
+      start_time: allDay ? null : toUtc(input.startDatetime),
+      end_time: allDay ? null : toUtc(input.endDatetime),
+      start_date: allDay ? input.startDatetime.split("T")[0] : null,
+      end_date: allDay ? input.endDatetime.split("T")[0] : null,
+      status: "confirmed",
+      start_datetime_tz: calendar.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      end_datetime_tz: null,
+      creator_id: calendar.originId,
+      organizer_id: calendar.originId,
+      origin_id: null,
+      connector_id: calendar.provider,
+      akiflow_account_id: calendar.akiflowAccountId,
+      origin_account_id: calendar.originAccountId,
+      recurring_id: null,
+      origin_recurring_id: null,
+      calendar_id: input.calendarId,
+      origin_calendar_id: calendar.originId,
+      original_start_time: null,
+      original_start_date: null,
+      origin_updated_at: null,
+      etag: null,
+      content: { sendUpdates: "all" },
+      attendees: [],
+      recurrence: null,
+      recurrence_exception: false,
+      declined: false,
+      read_only: false,
+      hidden: false,
+      url: null,
+      meeting_status: null,
+      meeting_url: null,
+      meeting_icon: null,
+      meeting_solution: null,
+      color: null,
+      calendar_color: calendar.color,
+      task_id: null,
+      time_slot_id: null,
+      recurrence_exception_delete: false,
+      global_created_at: null,
+      deleted_at: null,
+      global_updated_at: nowIso,
+      ...(input.location && { location: input.location }),
+    };
+
+    const raw = await this.request<unknown>("POST", "/v3/events", token, [rawEvent]);
+    const data = asDataArray(raw).map(mapCalendarEvent);
+    return { success: true, message: null, data };
+  }
+
+  async getRecordings(token: string, cursor?: string): Promise<AkiPageResponse<Recording>> {
+    const params = new URLSearchParams({ per_page: "100" });
+    if (cursor) params.set("cursor", cursor);
+    const res = await this.request<{ data: unknown[]; next_cursor?: string | null }>(
+      "GET",
+      `${AKI_API_BASE_URL}/recordings?${params.toString()}`,
+      token,
+    );
+    return { data: (res.data ?? []).map(mapRecording), nextCursor: res.next_cursor ?? null };
+  }
+
+  async getRecording(token: string, id: string): Promise<Recording> {
+    const res = await this.request<{ data: unknown }>("GET", `${AKI_API_BASE_URL}/recordings/${id}`, token);
+    return mapRecording(res.data);
+  }
+
+  async getMeetingBriefs(token: string, cursor?: string): Promise<AkiPageResponse<MeetingBrief>> {
+    const params = new URLSearchParams({ per_page: "100" });
+    if (cursor) params.set("cursor", cursor);
+    const res = await this.request<{ data: unknown[]; next_cursor?: string | null }>(
+      "GET",
+      `${AKI_API_BASE_URL}/researches?${params.toString()}`,
+      token,
+    );
+    return { data: (res.data ?? []).map(mapMeetingBrief), nextCursor: res.next_cursor ?? null };
+  }
+
+  async getMeetingBrief(token: string, id: string): Promise<MeetingBrief> {
+    const res = await this.request<{ data: unknown }>("GET", `${AKI_API_BASE_URL}/researches/${id}`, token);
+    return mapMeetingBrief(res.data);
+  }
+
+  async createTaskFromActionItem(
+    token: string,
+    recordingId: string,
+    actionItemId: string,
+  ): Promise<CreatedTaskFromActionItem> {
+    const raw = await this.request<unknown>(
+      "POST",
+      `${AKI_API_BASE_URL}/recordings/createTaskFromActionItem/${recordingId}/${actionItemId}`,
+      token,
+    );
+    const created = asDataArray(raw)[0] as { id?: unknown; title?: unknown } | undefined;
+    return {
+      id: typeof created?.id === "string" ? created.id : null,
+      title: typeof created?.title === "string" ? created.title : null,
+    };
   }
 }
 

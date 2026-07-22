@@ -12,6 +12,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import pkg from "../../package.json" with { type: "json" };
 import { registerAuthStatusTool } from "./tools/auth-status.ts";
 import { registerCalendarTools } from "./tools/calendar.ts";
+import { registerMeetingTools } from "./tools/meetings.ts";
 import { registerOrganizeTools } from "./tools/organize.ts";
 import { registerScheduleTools } from "./tools/schedule.ts";
 import { registerTaskTools } from "./tools/tasks.ts";
@@ -28,6 +29,7 @@ export function buildMcpServer(components: AppComponents): McpServer {
   registerTaskTools(server, components);
   registerScheduleTools(server, components);
   registerCalendarTools(server, components);
+  registerMeetingTools(server, components);
   registerOrganizeTools(server, components);
   registerAuthStatusTool(server, components);
 
