@@ -19,6 +19,7 @@ import type { AuthStatus, Credentials } from "@core/types.ts";
 
 interface AuthCalls {
   authenticate: number;
+  authenticateInteractive: number;
   setManualToken: string[];
   getStatus: number;
   logout: number;
@@ -38,11 +39,12 @@ function makeCredentials(overrides: Partial<Credentials> = {}): Credentials {
 
 function createFakeAuthService(overrides?: {
   authenticate?: () => Promise<Credentials>;
+  authenticateInteractive?: () => Promise<Credentials>;
   getStatus?: () => Promise<AuthStatus>;
   setManualToken?: (token: string) => Promise<Credentials>;
   logout?: () => Promise<void>;
 }): { service: AuthServiceApi; calls: AuthCalls } {
-  const calls: AuthCalls = { authenticate: 0, setManualToken: [], getStatus: 0, logout: 0 };
+  const calls: AuthCalls = { authenticate: 0, authenticateInteractive: 0, setManualToken: [], getStatus: 0, logout: 0 };
   const defaultStatus: AuthStatus = {
     isAuthenticated: false,
     expiresAt: null,
@@ -54,6 +56,10 @@ function createFakeAuthService(overrides?: {
     async authenticate(): Promise<Credentials> {
       calls.authenticate++;
       return overrides?.authenticate ? overrides.authenticate() : makeCredentials();
+    },
+    async authenticateInteractive(): Promise<Credentials> {
+      calls.authenticateInteractive++;
+      return overrides?.authenticateInteractive ? overrides.authenticateInteractive() : makeCredentials();
     },
     async getStatus(): Promise<AuthStatus> {
       calls.getStatus++;
@@ -170,9 +176,9 @@ describe("refreshCommand", () => {
     // When: refreshCommand runs
     await refreshCommand(service, stream, logger);
 
-    // Then: logout precedes authenticate and success line is printed
+    // Then: logout precedes authenticateInteractive and success line is printed
     expect(calls.logout).toBe(1);
-    expect(calls.authenticate).toBe(1);
+    expect(calls.authenticateInteractive).toBe(1);
     expect(chunks.join("")).toContain("Authenticated");
   });
 });

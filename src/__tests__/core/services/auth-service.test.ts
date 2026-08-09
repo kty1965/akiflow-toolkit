@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AuthExpiredError, AuthSourceMissingError, NetworkError } from "@core/errors/index.ts";
+import { AuthExpiredError, AuthSourceMissingError, BrowserDataError, NetworkError } from "@core/errors/index.ts";
 import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type { StoragePort } from "@core/ports/storage-port.ts";
@@ -46,6 +46,19 @@ class StubReader implements BrowserDataPort {
     private readonly behavior: { type: "ok"; value: ExtractedToken } | { type: "null" } | { type: "throw"; err: Error },
   ) {}
   async extract(): Promise<ExtractedToken | null> {
+    this.calls++;
+    if (this.behavior.type === "throw") throw this.behavior.err;
+    if (this.behavior.type === "null") return null;
+    return this.behavior.value;
+  }
+}
+
+class StubCdpLogin {
+  public calls = 0;
+  constructor(
+    private readonly behavior: { type: "ok"; value: ExtractedToken } | { type: "null" } | { type: "throw"; err: Error },
+  ) {}
+  async login(_loginUrl?: string): Promise<ExtractedToken | null> {
     this.calls++;
     if (this.behavior.type === "throw") throw this.behavior.err;
     if (this.behavior.type === "null") return null;
@@ -105,7 +118,11 @@ function makeCredentials(overrides: Partial<Credentials> = {}): Credentials {
   };
 }
 
-function buildService(overrides: Partial<AuthServiceDeps> = {}): {
+function buildService(
+  overrides: Partial<AuthServiceDeps> & {
+    cdpLogin?: { login(loginUrl?: string): Promise<ExtractedToken | null> };
+  } = {},
+): {
   service: AuthService;
   deps: AuthServiceDeps;
 } {
@@ -117,6 +134,7 @@ function buildService(overrides: Partial<AuthServiceDeps> = {}): {
     refreshAccessToken: overrides.refreshAccessToken ?? refresher.fn,
     logger: overrides.logger ?? createLogger(),
     clientId: overrides.clientId,
+    cdpLogin: overrides.cdpLogin,
   };
   return { service: new AuthService(deps), deps };
 }
@@ -256,6 +274,231 @@ describe("AuthService", () => {
 
       // When/Then: throws AuthSourceMissingError
       await expect(service.authenticate()).rejects.toBeInstanceOf(AuthSourceMissingError);
+    });
+  });
+
+  describe("authenticateInteractive", () => {
+    test("stored valid creds present → returns immediately, cdpLogin never invoked", async () => {
+      // Given: storage has unexpired credentials; cdpLogin would succeed if called
+      const storage = createStorage(makeCredentials());
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        cdpLogin,
+      });
+
+      // When: authenticateInteractive
+      const creds = await service.authenticateInteractive();
+
+      // Then: returns stored creds and never touches cdpLogin
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(cdpLogin.calls).toBe(0);
+    });
+
+    test("no stored creds, one browserReader succeeds → returns via that reader, cdpLogin never invoked", async () => {
+      // Given: no stored creds; a browser reader succeeds; cdpLogin would succeed if called
+      const storage = createStorage(null);
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "reader_access", refreshToken: "reader_refresh", browser: "Chrome" },
+      });
+      const refresher = createRefresher({ access_token: "reader_exchanged" });
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+        cdpLogin,
+      });
+
+      // When: authenticateInteractive
+      const creds = await service.authenticateInteractive();
+
+      // Then: returns via the browser reader and never touches cdpLogin
+      expect(reader.calls).toBe(1);
+      expect(creds.accessToken).toBe("reader_exchanged");
+      expect(cdpLogin.calls).toBe(0);
+    });
+
+    test("no stored creds, all browserReaders fail, cdpLogin succeeds without refreshToken → resolves to Credentials with source=cdp", async () => {
+      // Given: no stored creds, a browser reader that returns null, cdpLogin returns a token without a refreshToken
+      const storage = createStorage(null);
+      const reader = new StubReader({ type: "null" });
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        cdpLogin,
+      });
+
+      // When: authenticateInteractive
+      const creds = await service.authenticateInteractive();
+
+      // Then: creds are sourced from cdp and saved to storage
+      expect(reader.calls).toBe(1);
+      expect(creds.source).toBe("cdp");
+      expect(creds.accessToken).toBe("cdp_at");
+      expect(storage.state.saveCalls.length).toBe(1);
+      expect(storage.state.saveCalls[0].source).toBe("cdp");
+      expect(storage.state.saveCalls[0].accessToken).toBe("cdp_at");
+    });
+
+    test("no stored creds, all browserReaders fail, cdpLogin succeeds with refreshToken → source=cdp and refresh exchange invoked", async () => {
+      // Given: cdpLogin returns a token that does include a refreshToken
+      const storage = createStorage(null);
+      const reader = new StubReader({ type: "null" });
+      const refresher = createRefresher({ access_token: "cdp_exchanged" });
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", refreshToken: "cdp_refresh", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+        cdpLogin,
+      });
+
+      // When: authenticateInteractive
+      const creds = await service.authenticateInteractive();
+
+      // Then: source is still cdp (not indexeddb) and the refresh exchange used the captured refresh token
+      expect(reader.calls).toBe(1);
+      expect(creds.source).toBe("cdp");
+      expect(refresher.state.calls).toEqual(["cdp_refresh"]);
+      expect(creds.accessToken).toBe("cdp_exchanged");
+    });
+
+    test("no stored creds, all browserReaders fail, no cdpLogin provided → rejects with AuthSourceMissingError", async () => {
+      // Given: cdpLogin dependency is not configured at all
+      const reader = new StubReader({ type: "null" });
+      const { service } = buildService({
+        browserReaders: [reader],
+        cdpLogin: undefined,
+      });
+
+      // When/Then: rejects exactly as plain authenticate() does
+      await expect(service.authenticateInteractive()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(reader.calls).toBe(1);
+    });
+
+    test("no stored creds, all browserReaders fail, cdpLogin resolves null → rejects with AuthSourceMissingError", async () => {
+      // Given: cdpLogin is configured but resolves to null (Chrome not found)
+      const reader = new StubReader({ type: "null" });
+      const cdpLogin = new StubCdpLogin({ type: "null" });
+      const { service } = buildService({
+        browserReaders: [reader],
+        cdpLogin,
+      });
+
+      // When/Then: original AuthSourceMissingError surfaces and cdpLogin was tried
+      await expect(service.authenticateInteractive()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(reader.calls).toBe(1);
+      expect(cdpLogin.calls).toBe(1);
+    });
+
+    test("no stored creds, all browserReaders fail, cdpLogin throws → rejects with the original AuthSourceMissingError", async () => {
+      // Given: cdpLogin is configured but throws (timeout/WS failure)
+      const reader = new StubReader({ type: "null" });
+      const cdpLogin = new StubCdpLogin({
+        type: "throw",
+        err: new BrowserDataError("CDP login timed out after 60000ms"),
+      });
+      const { service } = buildService({
+        browserReaders: [reader],
+        cdpLogin,
+      });
+
+      // When/Then: original AuthSourceMissingError surfaces, not the raw CDP error, and cdpLogin was tried
+      await expect(service.authenticateInteractive()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(reader.calls).toBe(1);
+      expect(cdpLogin.calls).toBe(1);
+    });
+
+    test("authenticate() throws a non-AuthSourceMissingError → propagates as-is, cdpLogin never invoked", async () => {
+      // Given: storage.loadCredentials itself throws (not the Tier-4 exhaustion path)
+      const boom = new NetworkError("disk unreadable", 500);
+      const storage: StoragePort = {
+        async saveCredentials() {},
+        async loadCredentials(): Promise<Credentials | null> {
+          throw boom;
+        },
+        async clearCredentials() {},
+        getConfigDir() {
+          return "/tmp/test-config";
+        },
+      };
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({ storage, cdpLogin });
+
+      // When/Then: the original error propagates unchanged, cdpLogin is never tried
+      await expect(service.authenticateInteractive()).rejects.toBe(boom);
+      expect(cdpLogin.calls).toBe(0);
+    });
+
+    test("isolation: plain authenticate() never invokes cdpLogin even when configured", async () => {
+      // Given: no stored creds, a browser reader that returns null, cdpLogin would succeed if called
+      const reader = new StubReader({ type: "null" });
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        browserReaders: [reader],
+        cdpLogin,
+      });
+
+      // When/Then: plain authenticate() still throws after exhausting readers and never touches cdpLogin
+      await expect(service.authenticate()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(reader.calls).toBe(1);
+      expect(cdpLogin.calls).toBe(0);
+    });
+
+    test("isolation: withAuth Tier 3 recovery never invokes cdpLogin even when configured", async () => {
+      // Given: same setup as the Tier 3 browser-recovery withAuth test, plus a cdpLogin that would succeed
+      const storage = createStorage(makeCredentials({ accessToken: "stale", refreshToken: "bad_refresh" }));
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("bad refresh", 401) };
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "browser_fresh", browser: "Safari" },
+      });
+      const cdpLogin = new StubCdpLogin({
+        type: "ok",
+        value: { accessToken: "cdp_at", browser: "Chrome" },
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+        cdpLogin,
+      });
+      let attempts = 0;
+      const op = async (token: string) => {
+        attempts++;
+        if (attempts === 1) throw new NetworkError("unauthorized", 401);
+        return token;
+      };
+
+      // When: withAuth runs its 401-recovery cascade (authenticate → executeWithRecovery → recoverTier3Browser)
+      const result = await service.withAuth(op);
+
+      // Then: Tier 3 reader was used, and cdpLogin was never touched
+      expect(reader.calls).toBe(1);
+      expect(result).toBe("browser_fresh");
+      expect(cdpLogin.calls).toBe(0);
     });
   });
 
