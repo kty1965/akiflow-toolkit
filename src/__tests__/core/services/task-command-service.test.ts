@@ -319,6 +319,36 @@ describe("TaskCommandService", () => {
     });
   });
 
+  describe("shareTask / unshareTask", () => {
+    test("shareTask sets shared=true", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: shareTask
+      await service.shareTask("id-1");
+
+      // Then: payload has shared=true
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.shared).toBe(true);
+      expect(payload.id).toBe("id-1");
+    });
+
+    test("unshareTask sets shared=false", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: unshareTask
+      await service.unshareTask("id-1");
+
+      // Then: payload has shared=false
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.shared).toBe(false);
+      expect(payload.id).toBe("id-1");
+    });
+  });
+
   describe("scheduleTask / unscheduleTask", () => {
     test("scheduleTask with time sets date + datetime", async () => {
       // Given: a capturing port

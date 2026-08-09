@@ -9,6 +9,7 @@
 import { AkiflowError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
+import { duplicateTask } from "@core/services/task-duplicate.ts";
 import type { Task, TaskQueryOptions } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -23,6 +24,8 @@ export interface TaskToolsDeps {
     updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
     completeTask(id: string): Promise<Task>;
     deleteTask(id: string): Promise<Task>;
+    shareTask(id: string): Promise<Task>;
+    unshareTask(id: string): Promise<Task>;
   };
   logger: LoggerPort;
 }
@@ -43,6 +46,9 @@ export function registerTaskTools(server: McpServer, deps: TaskToolsDeps): void 
   registerUpdateTask(server, deps);
   registerCompleteTask(server, deps);
   registerDeleteTask(server, deps);
+  registerShareTask(server, deps);
+  registerUnshareTask(server, deps);
+  registerDuplicateTask(server, deps);
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +441,117 @@ function registerDeleteTask(server: McpServer, deps: TaskToolsDeps): void {
         return textResult(formatSingleTask("Deleted", task));
       } catch (err) {
         return toolError(err, deps, "delete_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// share_task — write (idempotent flag flip)
+// ---------------------------------------------------------------------------
+
+const ShareTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to share"),
+} as const;
+
+function registerShareTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "share_task",
+    {
+      description:
+        "Share an Akiflow task (sets shared=true). Use when the user asks to share a task, " +
+        "e.g. 'share task X' or '이 태스크 공유해줘'. Returns the shared task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Share this task' → { id: '<uuid>' }\n" +
+        "- '공유해줘' → { id: '<uuid>' }",
+      inputSchema: ShareTaskInputShape,
+      annotations: {
+        title: "Share task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.shareTask(args.id);
+        return textResult(formatSingleTask("Shared", task));
+      } catch (err) {
+        return toolError(err, deps, "share_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// unshare_task — write (idempotent flag flip)
+// ---------------------------------------------------------------------------
+
+const UnshareTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to unshare"),
+} as const;
+
+function registerUnshareTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "unshare_task",
+    {
+      description:
+        "Unshare an Akiflow task (sets shared=false). Use when the user asks to stop sharing " +
+        "a task, e.g. 'unshare task X' or '공유 취소해줘'. Returns the unshared task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Unshare this task' → { id: '<uuid>' }\n" +
+        "- '공유 취소해줘' → { id: '<uuid>' }",
+      inputSchema: UnshareTaskInputShape,
+      annotations: {
+        title: "Unshare task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.unshareTask(args.id);
+        return textResult(formatSingleTask("Unshared", task));
+      } catch (err) {
+        return toolError(err, deps, "unshare_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// duplicate_task — write (reads source via taskQuery, creates via taskCommand)
+// ---------------------------------------------------------------------------
+
+const DuplicateTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to duplicate"),
+} as const;
+
+function registerDuplicateTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "duplicate_task",
+    {
+      description:
+        "Duplicate an Akiflow task, copying its title, date, duration, and project into a new " +
+        "task. Use when the user asks to copy or clone a task, e.g. 'duplicate task X' or " +
+        "'이 태스크 복제해줘'. Returns the newly created task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Duplicate this task' → { id: '<uuid>' }\n" +
+        "- '이 태스크 복제해줘' → { id: '<uuid>' }",
+      inputSchema: DuplicateTaskInputShape,
+      annotations: {
+        title: "Duplicate task",
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await duplicateTask(
+          {
+            getTaskById: (id) => deps.taskQuery.getTaskById(id),
+            createTask: (input) => deps.taskCommand.createTask(input),
+          },
+          args.id,
+        );
+        return textResult(formatSingleTask("Duplicated", task));
+      } catch (err) {
+        return toolError(err, deps, "duplicate_task");
       }
     },
   );

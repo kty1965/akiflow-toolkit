@@ -68,6 +68,7 @@ export interface UpdateTaskPayload {
   priority?: number | null;
   parent_id?: string | null;
   position?: number | null;
+  shared?: boolean;
 }
 
 // Label
