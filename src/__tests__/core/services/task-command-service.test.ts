@@ -238,6 +238,37 @@ describe("TaskCommandService", () => {
       expect(payload.duration).toBeNull();
       expect(payload.listId).toBeNull();
     });
+
+    // updateTask must map description/priority onto the payload the same way
+    // duration/projectId are mapped (see the tests above).
+    test("maps description and priority onto the payload", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update description + priority
+      await service.updateTask("id-1", { description: "some notes", priority: 2 });
+
+      // Then: payload carries description and priority through unchanged
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.description).toBe("some notes");
+      expect(payload.priority).toBe(2);
+    });
+
+    test("clears description and priority when passed null", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update with explicit nulls
+      await service.updateTask("id-1", { description: null, priority: null });
+
+      // Then: explicit nulls must pass through and clear the field, matching
+      // how duration/projectId clearing works above
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.description).toBeNull();
+      expect(payload.priority).toBeNull();
+    });
   });
 
   describe("completeTask", () => {

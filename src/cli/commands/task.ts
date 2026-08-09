@@ -14,6 +14,7 @@ import * as chrono from "chrono-node";
 import { defineCommand } from "citty";
 import { RRule } from "rrule";
 import { handleCliError } from "../app.ts";
+import { parseDurationMs } from "./add.ts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -55,7 +56,8 @@ export function createTaskCommand(components: TaskCommandComponents, options: Ta
 }
 
 // ---------------------------------------------------------------------------
-// af task edit <id> [--title T] [--date D]
+// af task edit <id> [--title T] [--date D] [--description T] [--priority N]
+//               [--duration D] [--project ID]
 // ---------------------------------------------------------------------------
 
 export function createEditCommand(components: TaskCommandComponents, options: TaskCommandOptions = {}) {
@@ -63,11 +65,18 @@ export function createEditCommand(components: TaskCommandComponents, options: Ta
   const now = options.now ?? (() => new Date());
 
   return defineCommand({
-    meta: { name: "edit", description: "Edit task fields (title, date)" },
+    meta: {
+      name: "edit",
+      description: "Edit task fields (title, date, description, priority, duration, project)",
+    },
     args: {
       id: { type: "positional", description: "Task ID (short ID, UUID, or 6+ char prefix)", required: true },
       title: { type: "string", description: "New task title" },
       date: { type: "string", alias: "d", description: "New date (YYYY-MM-DD or natural, e.g. 'tomorrow')" },
+      description: { type: "string", description: "New description/notes" },
+      priority: { type: "string", description: "New priority level" },
+      duration: { type: "string", description: "New duration (e.g. 1h, 30m, 45s)" },
+      project: { type: "string", alias: "p", description: "New project/list ID" },
     },
     async run({ args }) {
       try {
@@ -84,8 +93,33 @@ export function createEditCommand(components: TaskCommandComponents, options: Ta
           patch.date = parseDateFlag(String(args.date), now());
         }
 
+        if (args.description !== undefined) {
+          patch.description = String(args.description);
+        }
+
+        if (args.priority !== undefined) {
+          const raw = String(args.priority).trim();
+          const parsed = Number(raw);
+          if (!raw || !Number.isInteger(parsed)) {
+            throw new ValidationError("priority must be an integer", "priority");
+          }
+          patch.priority = parsed;
+        }
+
+        if (args.duration !== undefined) {
+          patch.duration = parseDurationMs(String(args.duration));
+        }
+
+        if (args.project !== undefined) {
+          const projectId = String(args.project).trim();
+          if (!projectId) throw new ValidationError("project must not be empty", "project");
+          patch.projectId = projectId;
+        }
+
         if (Object.keys(patch).length === 0) {
-          throw new ValidationError("edit: at least one of --title or --date is required");
+          throw new ValidationError(
+            "edit: at least one of --title, --date, --description, --priority, --duration, or --project is required",
+          );
         }
 
         const task = await components.taskCommand.updateTask(id, patch);
