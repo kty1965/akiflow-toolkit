@@ -207,6 +207,37 @@ describe("TaskCommandService", () => {
       expect(payload).not.toHaveProperty("date");
       expect(typeof payload.global_updated_at).toBe("string");
     });
+
+    // updateTask must map duration/projectId onto duration/listId the same
+    // way createTask does (see the "createTask" describe block above).
+    test("maps duration and projectId onto duration and listId on the payload", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update duration + projectId
+      await service.updateTask("id-1", { duration: 30, projectId: "proj-1" });
+
+      // Then: payload mirrors createTask's duration -> duration, projectId -> listId mapping
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.duration).toBe(30);
+      expect(payload.listId).toBe("proj-1");
+    });
+
+    test("clears duration and projectId when passed null", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update with explicit nulls
+      await service.updateTask("id-1", { duration: null, projectId: null });
+
+      // Then: explicit nulls must pass through and clear the field, matching
+      // how unscheduleTask clears date/datetime
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.duration).toBeNull();
+      expect(payload.listId).toBeNull();
+    });
   });
 
   describe("completeTask", () => {

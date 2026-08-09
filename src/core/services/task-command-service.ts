@@ -78,6 +78,8 @@ export class TaskCommandService {
     if (patch.title !== undefined) payload.title = patch.title;
     if (patch.date !== undefined) payload.date = patch.date;
     if (patch.datetime !== undefined) payload.datetime = patch.datetime;
+    if (patch.duration !== undefined) payload.duration = patch.duration;
+    if (patch.projectId !== undefined) payload.listId = patch.projectId;
     if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence;
 
     return this.patchSingle(payload, "updateTask");
