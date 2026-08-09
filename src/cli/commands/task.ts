@@ -22,6 +22,8 @@ export interface TaskWriteApi {
   updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
   scheduleTask(id: string, date: string, time?: string): Promise<Task>;
   deleteTask(id: string): Promise<Task>;
+  uncompleteTask(id: string): Promise<Task>;
+  restoreTask(id: string): Promise<Task>;
 }
 
 export type TaskCache = Pick<CachePort, "getTasks" | "resolveShortId">;
@@ -43,13 +45,15 @@ export interface TaskCommandOptions {
 
 export function createTaskCommand(components: TaskCommandComponents, options: TaskCommandOptions = {}) {
   return defineCommand({
-    meta: { name: "task", description: "Edit, move, plan, snooze, or delete a task" },
+    meta: { name: "task", description: "Edit, move, plan, snooze, delete, undo, or restore a task" },
     subCommands: {
       edit: () => createEditCommand(components, options),
       move: () => createMoveCommand(components, options),
       plan: () => createPlanCommand(components, options),
       snooze: () => createSnoozeCommand(components, options),
       delete: () => createDeleteCommand(components, options),
+      undo: () => createUndoCommand(components, options),
+      restore: () => createRestoreCommand(components, options),
     },
   });
 }
@@ -250,6 +254,56 @@ export function createDeleteCommand(components: TaskCommandComponents, options: 
         const id = await resolveInput(String(args.id), components.cache);
         const task = await components.taskCommand.deleteTask(id);
         stdout.write(`${formatUpdated("Deleted", task)}\n`);
+      } catch (err) {
+        handleCliError(err, components.logger);
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// af task undo <id>
+// Un-completes a task — clears done/status.
+// ---------------------------------------------------------------------------
+
+export function createUndoCommand(components: TaskCommandComponents, options: TaskCommandOptions = {}) {
+  const stdout = options.stdout ?? process.stdout;
+
+  return defineCommand({
+    meta: { name: "undo", description: "Un-complete a task (clears done/status)" },
+    args: {
+      id: { type: "positional", description: "Task ID (short ID, UUID, or 6+ char prefix)", required: true },
+    },
+    async run({ args }) {
+      try {
+        const id = await resolveInput(String(args.id), components.cache);
+        const task = await components.taskCommand.uncompleteTask(id);
+        stdout.write(`${formatUpdated("Undone", task)}\n`);
+      } catch (err) {
+        handleCliError(err, components.logger);
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// af task restore <id>
+// Un-deletes a task — clears deleted_at.
+// ---------------------------------------------------------------------------
+
+export function createRestoreCommand(components: TaskCommandComponents, options: TaskCommandOptions = {}) {
+  const stdout = options.stdout ?? process.stdout;
+
+  return defineCommand({
+    meta: { name: "restore", description: "Restore a soft-deleted task (clears deleted_at)" },
+    args: {
+      id: { type: "positional", description: "Task ID (short ID, UUID, or 6+ char prefix)", required: true },
+    },
+    async run({ args }) {
+      try {
+        const id = await resolveInput(String(args.id), components.cache);
+        const task = await components.taskCommand.restoreTask(id);
+        stdout.write(`${formatUpdated("Restored", task)}\n`);
       } catch (err) {
         handleCliError(err, components.logger);
       }
