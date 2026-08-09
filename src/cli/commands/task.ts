@@ -57,7 +57,7 @@ export function createTaskCommand(components: TaskCommandComponents, options: Ta
 
 // ---------------------------------------------------------------------------
 // af task edit <id> [--title T] [--date D] [--description T] [--priority N]
-//               [--duration D] [--project ID]
+//               [--duration D] [--project ID] [--parent ID] [--position N]
 // ---------------------------------------------------------------------------
 
 export function createEditCommand(components: TaskCommandComponents, options: TaskCommandOptions = {}) {
@@ -67,7 +67,7 @@ export function createEditCommand(components: TaskCommandComponents, options: Ta
   return defineCommand({
     meta: {
       name: "edit",
-      description: "Edit task fields (title, date, description, priority, duration, project)",
+      description: "Edit task fields (title, date, description, priority, duration, project, parent, position)",
     },
     args: {
       id: { type: "positional", description: "Task ID (short ID, UUID, or 6+ char prefix)", required: true },
@@ -77,6 +77,8 @@ export function createEditCommand(components: TaskCommandComponents, options: Ta
       priority: { type: "string", description: "New priority level" },
       duration: { type: "string", description: "New duration (e.g. 1h, 30m, 45s)" },
       project: { type: "string", alias: "p", description: "New project/list ID" },
+      parent: { type: "string", description: "New parent task ID (makes this a subtask)" },
+      position: { type: "string", description: "New position/sort order" },
     },
     async run({ args }) {
       try {
@@ -116,9 +118,24 @@ export function createEditCommand(components: TaskCommandComponents, options: Ta
           patch.projectId = projectId;
         }
 
+        if (args.parent !== undefined) {
+          const parentId = String(args.parent).trim();
+          if (!parentId) throw new ValidationError("parent must not be empty", "parent");
+          patch.parentId = parentId;
+        }
+
+        if (args.position !== undefined) {
+          const raw = String(args.position).trim();
+          const parsed = Number(raw);
+          if (!raw || !Number.isInteger(parsed)) {
+            throw new ValidationError("position must be an integer", "position");
+          }
+          patch.position = parsed;
+        }
+
         if (Object.keys(patch).length === 0) {
           throw new ValidationError(
-            "edit: at least one of --title, --date, --description, --priority, --duration, or --project is required",
+            "edit: at least one of --title, --date, --description, --priority, --duration, --project, --parent, or --position is required",
           );
         }
 

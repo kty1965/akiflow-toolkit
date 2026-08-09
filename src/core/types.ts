@@ -66,6 +66,8 @@ export interface UpdateTaskPayload {
   recurrence?: string | null;
   description?: string | null;
   priority?: number | null;
+  parent_id?: string | null;
+  position?: number | null;
 }
 
 // Label

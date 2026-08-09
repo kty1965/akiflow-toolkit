@@ -290,6 +290,8 @@ const UpdateTaskInputShape = {
     ),
   duration: z.number().int().positive().nullable().optional().describe("New duration in minutes, or null to clear"),
   project: z.string().nullable().optional().describe("New project/list ID to move the task to, or null to clear"),
+  parent: z.string().nullable().optional().describe("New parent task ID (makes this a subtask), or null to clear"),
+  position: z.number().int().nullable().optional().describe("New position/sort order, or null to clear"),
 } as const;
 
 function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -298,7 +300,7 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
     {
       description:
         "Update fields on an existing Akiflow task (title/date/time/description/priority/" +
-        "duration/project). Use when the user asks to rename, reschedule, or otherwise edit " +
+        "duration/project/parent/position). Use when the user asks to rename, reschedule, or otherwise edit " +
         "a specific task, such as 'rename task X to Y', 'move this task to tomorrow', or " +
         "'set priority on this task to 2'. Any field can be cleared by passing null. Returns " +
         "the updated task summary.\n\n" +
@@ -323,6 +325,8 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
           priority?: number | null;
           duration?: number | null;
           projectId?: string | null;
+          parentId?: string | null;
+          position?: number | null;
         } = {};
         if (args.title !== undefined) patch.title = args.title;
         if (args.date !== undefined) patch.date = args.date;
@@ -344,6 +348,8 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
         if (args.priority !== undefined) patch.priority = args.priority;
         if (args.duration !== undefined) patch.duration = args.duration === null ? null : args.duration * 60_000;
         if (args.project !== undefined) patch.projectId = args.project;
+        if (args.parent !== undefined) patch.parentId = args.parent;
+        if (args.position !== undefined) patch.position = args.position;
 
         if (Object.keys(patch).length === 0) {
           return textResult("update_task: no fields to update.", true);
