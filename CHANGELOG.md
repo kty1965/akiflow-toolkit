@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.2.0...v1.2.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* **core:** map duration and projectId in updateTask payload ([a1db333](https://github.com/kty1965/akiflow-toolkit/commit/a1db33363ddeaa2a23035b6f4878080b2109d0ce))
+
 # [1.2.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.1.1...v1.2.0) (2026-04-28)
 
 

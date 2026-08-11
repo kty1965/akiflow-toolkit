@@ -37,6 +37,10 @@ export interface UpdateTaskInput {
   duration?: number | null;
   projectId?: string | null;
   recurrence?: string | null;
+  description?: string | null;
+  priority?: number | null;
+  parentId?: string | null;
+  position?: number | null;
 }
 
 export interface TaskCommandServiceDeps {
@@ -78,7 +82,13 @@ export class TaskCommandService {
     if (patch.title !== undefined) payload.title = patch.title;
     if (patch.date !== undefined) payload.date = patch.date;
     if (patch.datetime !== undefined) payload.datetime = patch.datetime;
+    if (patch.duration !== undefined) payload.duration = patch.duration;
+    if (patch.projectId !== undefined) payload.listId = patch.projectId;
     if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence;
+    if (patch.description !== undefined) payload.description = patch.description;
+    if (patch.priority !== undefined) payload.priority = patch.priority;
+    if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
+    if (patch.position !== undefined) payload.position = patch.position;
 
     return this.patchSingle(payload, "updateTask");
   }
@@ -101,6 +111,24 @@ export class TaskCommandService {
       status: 0,
     };
     return this.patchSingle(payload, "uncompleteTask");
+  }
+
+  async shareTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      shared: true,
+    };
+    return this.patchSingle(payload, "shareTask");
+  }
+
+  async unshareTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      shared: false,
+    };
+    return this.patchSingle(payload, "unshareTask");
   }
 
   async scheduleTask(id: string, date: string, time?: string): Promise<Task> {

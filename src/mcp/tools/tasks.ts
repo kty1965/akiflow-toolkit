@@ -9,6 +9,7 @@
 import { AkiflowError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
+import { duplicateTask } from "@core/services/task-duplicate.ts";
 import type { Task, TaskQueryOptions } from "@core/types.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -25,6 +26,8 @@ export interface TaskToolsDeps {
     deleteTask(id: string): Promise<Task>;
     uncompleteTask(id: string): Promise<Task>;
     restoreTask(id: string): Promise<Task>;
+    shareTask(id: string): Promise<Task>;
+    unshareTask(id: string): Promise<Task>;
   };
   logger: LoggerPort;
 }
@@ -47,6 +50,9 @@ export function registerTaskTools(server: McpServer, deps: TaskToolsDeps): void 
   registerDeleteTask(server, deps);
   registerUncompleteTask(server, deps);
   registerRestoreTask(server, deps);
+  registerShareTask(server, deps);
+  registerUnshareTask(server, deps);
+  registerDuplicateTask(server, deps);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +289,19 @@ const UpdateTaskInputShape = {
     .nullable()
     .optional()
     .describe("New scheduled time (HH:MM) or null to clear"),
+  description: z.string().nullable().optional().describe("New description/notes, or null to clear"),
+  priority: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .describe(
+      "New priority level (Akiflow's exact priority scale is not publicly documented — pass the value as-is), or null to clear",
+    ),
+  duration: z.number().int().positive().nullable().optional().describe("New duration in minutes, or null to clear"),
+  project: z.string().nullable().optional().describe("New project/list ID to move the task to, or null to clear"),
+  parent: z.string().nullable().optional().describe("New parent task ID (makes this a subtask), or null to clear"),
+  position: z.number().int().nullable().optional().describe("New position/sort order, or null to clear"),
 } as const;
 
 function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -290,12 +309,15 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
     "update_task",
     {
       description:
-        "Update fields on an existing Akiflow task (title/date/time). Use when the user " +
-        "asks to rename or reschedule a specific task, such as 'rename task X to Y' or " +
-        "'move this task to tomorrow'. Returns the updated task summary.\n\n" +
+        "Update fields on an existing Akiflow task (title/date/time/description/priority/" +
+        "duration/project/parent/position). Use when the user asks to rename, reschedule, or otherwise edit " +
+        "a specific task, such as 'rename task X to Y', 'move this task to tomorrow', or " +
+        "'set priority on this task to 2'. Any field can be cleared by passing null. Returns " +
+        "the updated task summary.\n\n" +
         "Examples:\n" +
         "- 'Rename task to Write draft' → { id: '<uuid>', title: 'Write draft' }\n" +
         "- 'Move task to 2026-04-20' → { id: '<uuid>', date: '2026-04-20' }\n" +
+        "- 'Set duration to 30 minutes' → { id: '<uuid>', duration: 30 }\n" +
         "- '이 태스크 시간 비워줘' → { id: '<uuid>', time: null }",
       inputSchema: UpdateTaskInputShape,
       annotations: {
@@ -309,6 +331,12 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
           title?: string;
           date?: string | null;
           datetime?: string | null;
+          description?: string | null;
+          priority?: number | null;
+          duration?: number | null;
+          projectId?: string | null;
+          parentId?: string | null;
+          position?: number | null;
         } = {};
         if (args.title !== undefined) patch.title = args.title;
         if (args.date !== undefined) patch.date = args.date;
@@ -326,6 +354,12 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
             patch.datetime = `${resolvedDate}T${args.time}:00`;
           }
         }
+        if (args.description !== undefined) patch.description = args.description;
+        if (args.priority !== undefined) patch.priority = args.priority;
+        if (args.duration !== undefined) patch.duration = args.duration === null ? null : args.duration * 60_000;
+        if (args.project !== undefined) patch.projectId = args.project;
+        if (args.parent !== undefined) patch.parentId = args.parent;
+        if (args.position !== undefined) patch.position = args.position;
 
         if (Object.keys(patch).length === 0) {
           return textResult("update_task: no fields to update.", true);
@@ -486,6 +520,117 @@ function registerRestoreTask(server: McpServer, deps: TaskToolsDeps): void {
         return textResult(formatSingleTask("Restored", task));
       } catch (err) {
         return toolError(err, deps, "restore_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// share_task — write (idempotent flag flip)
+// ---------------------------------------------------------------------------
+
+const ShareTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to share"),
+} as const;
+
+function registerShareTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "share_task",
+    {
+      description:
+        "Share an Akiflow task (sets shared=true). Use when the user asks to share a task, " +
+        "e.g. 'share task X' or '이 태스크 공유해줘'. Returns the shared task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Share this task' → { id: '<uuid>' }\n" +
+        "- '공유해줘' → { id: '<uuid>' }",
+      inputSchema: ShareTaskInputShape,
+      annotations: {
+        title: "Share task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.shareTask(args.id);
+        return textResult(formatSingleTask("Shared", task));
+      } catch (err) {
+        return toolError(err, deps, "share_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// unshare_task — write (idempotent flag flip)
+// ---------------------------------------------------------------------------
+
+const UnshareTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to unshare"),
+} as const;
+
+function registerUnshareTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "unshare_task",
+    {
+      description:
+        "Unshare an Akiflow task (sets shared=false). Use when the user asks to stop sharing " +
+        "a task, e.g. 'unshare task X' or '공유 취소해줘'. Returns the unshared task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Unshare this task' → { id: '<uuid>' }\n" +
+        "- '공유 취소해줘' → { id: '<uuid>' }",
+      inputSchema: UnshareTaskInputShape,
+      annotations: {
+        title: "Unshare task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.unshareTask(args.id);
+        return textResult(formatSingleTask("Unshared", task));
+      } catch (err) {
+        return toolError(err, deps, "unshare_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// duplicate_task — write (reads source via taskQuery, creates via taskCommand)
+// ---------------------------------------------------------------------------
+
+const DuplicateTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to duplicate"),
+} as const;
+
+function registerDuplicateTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "duplicate_task",
+    {
+      description:
+        "Duplicate an Akiflow task, copying its title, date, duration, and project into a new " +
+        "task. Use when the user asks to copy or clone a task, e.g. 'duplicate task X' or " +
+        "'이 태스크 복제해줘'. Returns the newly created task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Duplicate this task' → { id: '<uuid>' }\n" +
+        "- '이 태스크 복제해줘' → { id: '<uuid>' }",
+      inputSchema: DuplicateTaskInputShape,
+      annotations: {
+        title: "Duplicate task",
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await duplicateTask(
+          {
+            getTaskById: (id) => deps.taskQuery.getTaskById(id),
+            createTask: (input) => deps.taskCommand.createTask(input),
+          },
+          args.id,
+        );
+        return textResult(formatSingleTask("Duplicated", task));
+      } catch (err) {
+        return toolError(err, deps, "duplicate_task");
       }
     },
   );

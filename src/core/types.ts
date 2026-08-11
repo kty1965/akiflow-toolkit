@@ -58,10 +58,17 @@ export interface UpdateTaskPayload {
   title?: string;
   date?: string | null;
   datetime?: string | null;
+  duration?: number | null;
+  listId?: string | null;
   done?: boolean;
   status?: TaskStatus;
   deleted_at?: string | null;
   recurrence?: string | null;
+  description?: string | null;
+  priority?: number | null;
+  parent_id?: string | null;
+  position?: number | null;
+  shared?: boolean;
 }
 
 // Label

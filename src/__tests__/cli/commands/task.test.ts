@@ -2,13 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   type CliWriter,
   createDeleteCommand,
+  createDupCommand,
   createEditCommand,
   createMoveCommand,
   createPlanCommand,
   createRestoreCommand,
+  createShareCommand,
   createSnoozeCommand,
   createTaskCommand,
   createUndoCommand,
+  createUnshareCommand,
   parseDateFlag,
   resolveInput,
   type TaskCache,
@@ -18,7 +21,7 @@ import {
 } from "@cli/commands/task.ts";
 import { NotFoundError, ValidationError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
-import type { UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
 import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -55,6 +58,9 @@ interface FakeTaskCommand {
     deleteTask: string[];
     uncompleteTask: string[];
     restoreTask: string[];
+    shareTask: string[];
+    unshareTask: string[];
+    createTask: CreateTaskInput[];
   };
 }
 
@@ -65,6 +71,9 @@ function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) =
     deleteTask: [],
     uncompleteTask: [],
     restoreTask: [],
+    shareTask: [],
+    unshareTask: [],
+    createTask: [],
   };
   const service: TaskWriteApi = {
     async updateTask(id, patch) {
@@ -87,6 +96,18 @@ function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) =
       calls.restoreTask.push(id);
       return response(id);
     },
+    async shareTask(id) {
+      calls.shareTask.push(id);
+      return response(id);
+    },
+    async unshareTask(id) {
+      calls.unshareTask.push(id);
+      return response(id);
+    },
+    async createTask(input) {
+      calls.createTask.push(input);
+      return response("created-id", { title: input.title });
+    },
   };
   return { service, calls };
 }
@@ -99,6 +120,22 @@ function createFakeCache(tasks: Task[], shortMap: Record<string, string>): TaskC
     async resolveShortId(shortId) {
       return shortMap[shortId] ?? null;
     },
+  };
+}
+
+function createFakeTaskQuery(source: Task | null): {
+  taskQuery: { getTaskById(id: string): Promise<Task | null> };
+  calls: string[];
+} {
+  const calls: string[] = [];
+  return {
+    taskQuery: {
+      async getTaskById(id) {
+        calls.push(id);
+        return source;
+      },
+    },
+    calls,
   };
 }
 
@@ -244,6 +281,337 @@ describe("createEditCommand", () => {
     await cmd.run?.({ rawArgs: ["1", "-d", "tomorrow"], args: { _: ["1"], id: "1", date: "tomorrow" }, cmd });
 
     expect(calls.updateTask).toEqual([{ id: t.id, patch: { date: "2026-04-18" } }]);
+  });
+
+  test("--description updates description", async () => {
+    // Given: task + short ID '1'. When: edit 1 --description 'notes here'. Then: updateTask called with {description}.
+    const t = makeTask({ id: "u-9" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({
+      ...t,
+      id,
+      description: patch?.description ?? null,
+    }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--description", "notes here"],
+          args: { _: ["1"], id: "1", description: "notes here" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { description: "notes here" } }]);
+  });
+
+  test("--priority updates priority as a number", async () => {
+    // Given: task + short ID '1'. When: edit 1 --priority 2. Then: updateTask called with {priority:2} (number).
+    const t = makeTask({ id: "u-10" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({ ...t, id, priority: patch?.priority ?? null }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--priority", "2"],
+          args: { _: ["1"], id: "1", priority: "2" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { priority: 2 } }]);
+  });
+
+  test("--priority non-numeric exits with VALIDATION code (exit 4) without calling updateTask", async () => {
+    // Given: bogus priority 'notanumber'. When: edit invoked. Then: handleCliError calls process.exit(4).
+    const t = makeTask({ id: "u-11" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--priority", "notanumber"],
+          args: { _: ["1"], id: "1", priority: "notanumber" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--priority with no value exits with VALIDATION code instead of silently writing priority 0", async () => {
+    // Given: bare --priority (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-11b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--priority"],
+          args: { _: ["1"], id: "1", priority: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--duration parses spec into ms via parseDurationMs", async () => {
+    // Given: task + short ID '1'. When: edit 1 --duration 30m. Then: updateTask called with {duration:1_800_000}.
+    const t = makeTask({ id: "u-12" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({ ...t, id, duration: patch?.duration ?? null }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--duration", "30m"],
+          args: { _: ["1"], id: "1", duration: "30m" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { duration: 1_800_000 } }]);
+  });
+
+  test("--project (alias -p) updates projectId", async () => {
+    // Given: task + short ID '1'. When: edit 1 -p proj-1. Then: updateTask called with {projectId:'proj-1'}.
+    const t = makeTask({ id: "u-13" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({
+      ...t,
+      id,
+      listId: patch?.projectId ?? null,
+    }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "-p", "proj-1"],
+          args: { _: ["1"], id: "1", project: "proj-1" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { projectId: "proj-1" } }]);
+  });
+
+  test("--project with no value exits with VALIDATION code instead of writing an empty projectId", async () => {
+    // Given: bare -p (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-13b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "-p"],
+          args: { _: ["1"], id: "1", project: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--parent updates parentId", async () => {
+    // Given: task + short ID '1'. When: edit 1 --parent parent-1. Then: updateTask called with {parentId:'parent-1'}.
+    const t = makeTask({ id: "u-15" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({
+      ...t,
+      id,
+      parent_id: patch?.parentId ?? null,
+    }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--parent", "parent-1"],
+          args: { _: ["1"], id: "1", parent: "parent-1" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { parentId: "parent-1" } }]);
+  });
+
+  test("--parent with no value exits with VALIDATION code instead of writing an empty parentId", async () => {
+    // Given: bare --parent (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-15b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--parent"],
+          args: { _: ["1"], id: "1", parent: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--position updates position as a number", async () => {
+    // Given: task + short ID '1'. When: edit 1 --position 3. Then: updateTask called with {position:3} (number).
+    const t = makeTask({ id: "u-16" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({ ...t, id, position: patch?.position ?? null }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position", "3"],
+          args: { _: ["1"], id: "1", position: "3" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { position: 3 } }]);
+  });
+
+  test("--position non-numeric exits with VALIDATION code (exit 4) without calling updateTask", async () => {
+    // Given: bogus position 'notanumber'. When: edit invoked. Then: handleCliError calls process.exit(4).
+    const t = makeTask({ id: "u-17" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position", "notanumber"],
+          args: { _: ["1"], id: "1", position: "notanumber" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--position with no value exits with VALIDATION code instead of silently writing position 0", async () => {
+    // Given: bare --position (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-17b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position"],
+          args: { _: ["1"], id: "1", position: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("no flags at all still throws the 'at least one field' validation error", async () => {
+    // Given: task + short ID '1'. When: edit 1 (no flags). Then: ValidationError → exit 4.
+    const t = makeTask({ id: "u-14" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd })),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
   });
 });
 
@@ -533,22 +901,168 @@ describe("createRestoreCommand", () => {
 });
 
 // ---------------------------------------------------------------------------
+// createShareCommand / createUnshareCommand — shared flag flip
+// ---------------------------------------------------------------------------
+
+describe("createShareCommand", () => {
+  test("invokes shareTask with resolved UUID", async () => {
+    // Given: task + short ID '1'. When: share 1. Then: shareTask called, output includes 'Shared'.
+    const t = makeTask({ id: "u-18" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, shared: true }));
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(t);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createShareCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.shareTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Shared task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: share 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createShareCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+describe("createUnshareCommand", () => {
+  test("invokes unshareTask with resolved UUID", async () => {
+    // Given: shared task + short ID '1'. When: unshare 1. Then: unshareTask called, output includes 'Unshared'.
+    const t = makeTask({ id: "u-19", shared: true });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, shared: false }));
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(t);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createUnshareCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.unshareTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Unshared task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: unshare 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createUnshareCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDupCommand — read-then-create via task-duplicate.ts helper
+// ---------------------------------------------------------------------------
+
+describe("createDupCommand", () => {
+  test("resolves id, reads source via taskQuery, creates a copy, prints 'Duplicated'", async () => {
+    // Given: source task '1' resolvable via cache + live via taskQuery.getTaskById.
+    // When: dup 1. Then: createTask called with copied title, output includes 'Duplicated'.
+    const source = makeTask({ id: "u-20", title: "Original" });
+    const created = makeTask({ id: "u-21", title: "Original" });
+    const { service, calls } = createFakeTaskCommand(() => created);
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(source);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([source], { "1": source.id }),
+      logger: silentLogger(),
+      taskQuery,
+    };
+    const cmd = createDupCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.createTask).toEqual([{ title: "Original" }]);
+    expect(chunks.join("")).toContain("Duplicated task");
+  });
+
+  test("live getTaskById lookup returns null → NOT_FOUND (exit 5), createTask never called", async () => {
+    // Given: id resolves via cache's short-ID map, but the live taskQuery.getTaskById
+    // lookup (a separate call from resolveInput's cache-based resolution) returns null.
+    const t = makeTask({ id: "u-22" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+      taskQuery,
+    };
+    const cmd = createDupCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.createTask).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createTaskCommand — composition smoke check
 // ---------------------------------------------------------------------------
 
 describe("createTaskCommand", () => {
-  test("exposes edit/move/plan/snooze/delete/undo/restore subcommands", () => {
-    // Given: composed task command. When: inspecting subCommands. Then: all seven keys present.
+  test("exposes edit/move/plan/snooze/delete/undo/restore/share/unshare/dup subcommands", () => {
+    // Given: composed task command. When: inspecting subCommands. Then: all ten keys present.
+    const { taskQuery } = createFakeTaskQuery(null);
     const components: TaskCommandComponents = {
       taskCommand: createFakeTaskCommand((id) => ({ ...makeTask(), id })).service,
       cache: createFakeCache([], {}),
       logger: silentLogger(),
+      taskQuery,
     };
     const cmd = createTaskCommand(components);
     const subs = cmd.subCommands;
     if (!subs || typeof subs !== "object" || typeof subs === "function") {
       throw new Error("expected subCommands to be a plain object");
     }
-    expect(Object.keys(subs).sort()).toEqual(["delete", "edit", "move", "plan", "restore", "snooze", "undo"]);
+    expect(Object.keys(subs).sort()).toEqual([
+      "delete",
+      "dup",
+      "edit",
+      "move",
+      "plan",
+      "restore",
+      "share",
+      "snooze",
+      "undo",
+      "unshare",
+    ]);
   });
 });

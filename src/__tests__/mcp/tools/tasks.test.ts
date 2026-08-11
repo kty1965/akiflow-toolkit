@@ -64,6 +64,8 @@ function buildDeps(overrides: { query?: QueryStub; command?: CommandStub } = {})
     uncompleteTask:
       overrides.command?.uncompleteTask ?? (async (id: string) => buildTask({ id, done: false, status: 0 })),
     restoreTask: overrides.command?.restoreTask ?? (async (id: string) => buildTask({ id, deleted_at: null })),
+    shareTask: overrides.command?.shareTask ?? (async (id) => buildTask({ id, shared: true })),
+    unshareTask: overrides.command?.unshareTask ?? (async (id) => buildTask({ id, shared: false })),
   };
   return { taskQuery: query, taskCommand: command, logger: silentLogger };
 }
@@ -99,7 +101,7 @@ describe("mcp/tools/tasks", () => {
   });
 
   describe("tool registration", () => {
-    test("registers exactly the nine task tools with ADR-0007 annotations", async () => {
+    test("registers exactly the twelve task tools with ADR-0007 annotations", async () => {
       // Given: tasks tools registered
       registerTaskTools(server, buildDeps());
       client = await connectClient(server);
@@ -108,17 +110,20 @@ describe("mcp/tools/tasks", () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
-      // Then: all 9 expected names are present and annotations follow the spec
+      // Then: all 12 expected names are present and annotations follow the spec
       expect(names).toEqual(
         [
           "complete_task",
           "create_task",
           "delete_task",
+          "duplicate_task",
           "get_task",
           "get_tasks",
           "restore_task",
           "search_tasks",
+          "share_task",
           "uncomplete_task",
+          "unshare_task",
           "update_task",
         ].sort(),
       );
@@ -163,6 +168,22 @@ describe("mcp/tools/tasks", () => {
       expect(restore?.annotations?.destructiveHint).toBeUndefined();
       expect(restore?.annotations?.idempotentHint).toBe(true);
       expect(restore?.description ?? "").toContain("Examples:");
+
+      // share/unshare are not destructive and are idempotent (flipping a flag
+      // to the same value repeatedly has no additional effect).
+      const share = tools.find((t) => t.name === "share_task");
+      expect(share?.annotations?.idempotentHint).toBe(true);
+      expect(share?.annotations?.destructiveHint).toBeFalsy();
+
+      const unshare = tools.find((t) => t.name === "unshare_task");
+      expect(unshare?.annotations?.idempotentHint).toBe(true);
+      expect(unshare?.annotations?.destructiveHint).toBeFalsy();
+
+      // duplicate_task creates a new task on every call — not idempotent.
+      // Convention in this file is to omit idempotentHint when it doesn't
+      // apply (see create_task above), not set it to an explicit false.
+      const dup = tools.find((t) => t.name === "duplicate_task");
+      expect(dup?.annotations?.idempotentHint).toBeFalsy();
     });
   });
 
@@ -740,6 +761,240 @@ describe("mcp/tools/tasks", () => {
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("Akiflow 서버에 연결할 수 없습니다");
     });
+
+    test("description patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating description
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", description: "notes" },
+      });
+
+      // Then: patch contains description
+      expect(calls[0]?.patch).toMatchObject({ description: "notes" });
+    });
+
+    test("priority patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating priority
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", priority: 3 },
+      });
+
+      // Then: patch contains priority
+      expect(calls[0]?.patch).toMatchObject({ priority: 3 });
+    });
+
+    test("duration (minutes) converts to ms on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating duration=30 (minutes)
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", duration: 30 },
+      });
+
+      // Then: patch.duration is in ms (30 * 60_000)
+      expect(calls[0]?.patch).toMatchObject({ duration: 30 * 60_000 });
+    });
+
+    test("duration=null clears duration without multiplying (not NaN/0)", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing duration
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", duration: null },
+      });
+
+      // Then: patch.duration is explicitly null, not NaN/0 from a naive `null * 60_000`
+      expect(calls[0]?.patch).toEqual({ duration: null });
+    });
+
+    test("project maps to projectId on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating project
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", project: "proj-2" },
+      });
+
+      // Then: patch contains projectId
+      expect(calls[0]?.patch).toMatchObject({ projectId: "proj-2" });
+    });
+
+    test("parent maps to parentId on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating parent
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", parent: "parent-2" },
+      });
+
+      // Then: patch contains parentId (mirrors project → projectId, not the raw wire name)
+      expect(calls[0]?.patch).toMatchObject({ parentId: "parent-2" });
+    });
+
+    test("position patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating position
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", position: 5 },
+      });
+
+      // Then: patch contains position
+      expect(calls[0]?.patch).toMatchObject({ position: 5 });
+    });
+
+    test("parent/position explicit nulls both clear on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing parent and position together
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", parent: null, position: null },
+      });
+
+      // Then: both are explicit nulls on the patch
+      expect(calls[0]?.patch).toEqual({ parentId: null, position: null });
+    });
+
+    test("description/priority/project explicit nulls all clear on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing description, priority, and project together
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", description: null, priority: null, project: null },
+      });
+
+      // Then: all three are explicit nulls on the patch
+      expect(calls[0]?.patch).toEqual({ description: null, priority: null, projectId: null });
+    });
   });
 
   describe("complete_task", () => {
@@ -939,6 +1194,183 @@ describe("mcp/tools/tasks", () => {
       // Then: isError flag and userMessage surface
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("네트워크");
+    });
+  });
+
+  describe("share_task", () => {
+    test("calls shareTask(id) and returns Shared summary", async () => {
+      // Given: shareTask stub records id
+      const ids: string[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            shareTask: async (id) => {
+              ids.push(id);
+              return buildTask({ id, shared: true });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: sharing the task
+      const result = await client.callTool({
+        name: "share_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: service receives id, output contains 'Shared'
+      expect(ids).toEqual(["abc"]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Shared");
+    });
+
+    test("AkiflowError → isError with hint line", async () => {
+      // Given: shareTask throws NetworkError
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            shareTask: async () => {
+              throw new NetworkError("connection refused");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: "share_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError flag and userMessage surface
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("네트워크");
+    });
+  });
+
+  describe("unshare_task", () => {
+    test("calls unshareTask(id) and returns Unshared summary", async () => {
+      // Given: unshareTask stub records id
+      const ids: string[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            unshareTask: async (id) => {
+              ids.push(id);
+              return buildTask({ id, shared: false });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: unsharing the task
+      const result = await client.callTool({
+        name: "unshare_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: service receives id, output contains 'Unshared'
+      expect(ids).toEqual(["abc"]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Unshared");
+    });
+
+    test("AkiflowError → isError with hint line", async () => {
+      // Given: unshareTask throws NetworkError
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            unshareTask: async () => {
+              throw new NetworkError("connection refused");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: "unshare_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError flag and userMessage surface
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("네트워크");
+    });
+  });
+
+  describe("duplicate_task", () => {
+    test("calls getTaskById then createTask and returns Duplicated summary", async () => {
+      // Given: source task found via taskQuery.getTaskById
+      const source = buildTask({ id: "src-1", title: "Original" });
+      const getCalls: string[] = [];
+      const createCalls: Array<{ title: string }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: {
+            getTaskById: async (id) => {
+              getCalls.push(id);
+              return id === source.id ? source : null;
+            },
+          },
+          command: {
+            createTask: async (input) => {
+              createCalls.push({ title: input.title });
+              return buildTask({ id: "new-1", title: input.title });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: duplicating the task
+      const result = await client.callTool({
+        name: "duplicate_task",
+        arguments: { id: "src-1" },
+      });
+
+      // Then: both underlying calls happen and output contains 'Duplicated'
+      expect(getCalls).toEqual(["src-1"]);
+      expect(createCalls).toEqual([{ title: "Original" }]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Duplicated");
+    });
+
+    test("source not found → isError, createTask never called", async () => {
+      // Given: taskQuery.getTaskById resolves to null
+      const createCalls: unknown[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          query: { getTaskById: async () => null },
+          command: {
+            createTask: async (input) => {
+              createCalls.push(input);
+              return buildTask();
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: duplicating a missing task
+      const result = await client.callTool({
+        name: "duplicate_task",
+        arguments: { id: "missing" },
+      });
+
+      // Then: isError is true and createTask was never invoked
+      expect(result.isError).toBe(true);
+      expect(createCalls).toHaveLength(0);
     });
   });
 });

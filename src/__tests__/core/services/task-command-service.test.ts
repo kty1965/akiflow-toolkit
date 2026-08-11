@@ -207,6 +207,99 @@ describe("TaskCommandService", () => {
       expect(payload).not.toHaveProperty("date");
       expect(typeof payload.global_updated_at).toBe("string");
     });
+
+    // updateTask must map duration/projectId onto duration/listId the same
+    // way createTask does (see the "createTask" describe block above).
+    test("maps duration and projectId onto duration and listId on the payload", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update duration + projectId
+      await service.updateTask("id-1", { duration: 30, projectId: "proj-1" });
+
+      // Then: payload mirrors createTask's duration -> duration, projectId -> listId mapping
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.duration).toBe(30);
+      expect(payload.listId).toBe("proj-1");
+    });
+
+    test("clears duration and projectId when passed null", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update with explicit nulls
+      await service.updateTask("id-1", { duration: null, projectId: null });
+
+      // Then: explicit nulls must pass through and clear the field, matching
+      // how unscheduleTask clears date/datetime
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.duration).toBeNull();
+      expect(payload.listId).toBeNull();
+    });
+
+    // updateTask must map description/priority onto the payload the same way
+    // duration/projectId are mapped (see the tests above).
+    test("maps description and priority onto the payload", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update description + priority
+      await service.updateTask("id-1", { description: "some notes", priority: 2 });
+
+      // Then: payload carries description and priority through unchanged
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.description).toBe("some notes");
+      expect(payload.priority).toBe(2);
+    });
+
+    test("clears description and priority when passed null", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update with explicit nulls
+      await service.updateTask("id-1", { description: null, priority: null });
+
+      // Then: explicit nulls must pass through and clear the field, matching
+      // how duration/projectId clearing works above
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.description).toBeNull();
+      expect(payload.priority).toBeNull();
+    });
+
+    // updateTask must map parentId/position onto the payload the same way
+    // description/priority are mapped (see the tests above).
+    test("maps parentId and position onto the payload", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update parentId + position
+      await service.updateTask("id-1", { parentId: "parent-1", position: 3 });
+
+      // Then: payload carries parent_id and position through unchanged
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.parent_id).toBe("parent-1");
+      expect(payload.position).toBe(3);
+    });
+
+    test("clears parentId and position when passed null", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update with explicit nulls
+      await service.updateTask("id-1", { parentId: null, position: null });
+
+      // Then: explicit nulls must pass through and clear the field, matching
+      // how description/priority clearing works above
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.parent_id).toBeNull();
+      expect(payload.position).toBeNull();
+    });
   });
 
   describe("completeTask", () => {
@@ -239,6 +332,36 @@ describe("TaskCommandService", () => {
       const payload = calls[0].tasks[0] as UpdateTaskPayload;
       expect(payload.done).toBe(false);
       expect(payload.status).toBe(0);
+      expect(payload.id).toBe("id-1");
+    });
+  });
+
+  describe("shareTask / unshareTask", () => {
+    test("shareTask sets shared=true", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: shareTask
+      await service.shareTask("id-1");
+
+      // Then: payload has shared=true
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.shared).toBe(true);
+      expect(payload.id).toBe("id-1");
+    });
+
+    test("unshareTask sets shared=false", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: unshareTask
+      await service.unshareTask("id-1");
+
+      // Then: payload has shared=false
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.shared).toBe(false);
       expect(payload.id).toBe("id-1");
     });
   });

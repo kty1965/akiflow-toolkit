@@ -13,6 +13,7 @@ import { handleCliError } from "../app.ts";
 
 export interface AuthServiceApi {
   authenticate(): Promise<Credentials>;
+  authenticateInteractive(): Promise<Credentials>;
   setManualToken(refreshToken: string): Promise<Credentials>;
   getStatus(): Promise<AuthStatus>;
   logout(): Promise<void>;
@@ -54,7 +55,7 @@ export function createAuthCommand(components: AuthCommandComponents, options: Au
 
   const autoCmd = async () => {
     try {
-      const creds = await components.authService.authenticate();
+      const creds = await components.authService.authenticateInteractive();
       printAuthSuccess(stdout, creds);
     } catch (err) {
       handleCliError(err, components.logger);
@@ -129,7 +130,7 @@ export async function refreshCommand(
 ): Promise<void> {
   try {
     await authService.logout();
-    const creds = await authService.authenticate();
+    const creds = await authService.authenticateInteractive();
     printAuthSuccess(stdout, creds);
   } catch (err) {
     handleCliError(err, logger);
