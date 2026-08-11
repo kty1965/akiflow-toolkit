@@ -1,3 +1,13 @@
+# [1.3.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.2.1...v1.3.0) (2026-08-11)
+
+
+### Features
+
+* **auth:** wire CdpBrowserLogin into AuthService (TASK-19) ([b3701f4](https://github.com/kty1965/akiflow-toolkit/commit/b3701f45f5003b58e35cdd53bd811e08da860388))
+* **tasks:** add share, unshare, and duplicate actions ([b803a50](https://github.com/kty1965/akiflow-toolkit/commit/b803a509673bf83e45e014969f3a8f8b5ec8bcf1))
+* **tasks:** expose description, priority, duration, and project on task edit ([07aef66](https://github.com/kty1965/akiflow-toolkit/commit/07aef667b5b1f50a89515aa17a53b49ff8bbfbf5))
+* **tasks:** expose parent (subtask) and position (reorder) on task edit ([56497d0](https://github.com/kty1965/akiflow-toolkit/commit/56497d0fed39c2938e4788c2b858606ed2109ca1))
+
 ## [1.2.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.2.0...v1.2.1) (2026-08-11)
 
 
