@@ -103,6 +103,24 @@ export class TaskCommandService {
     return this.patchSingle(payload, "completeTask");
   }
 
+  async shareTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      shared: true,
+    };
+    return this.patchSingle(payload, "shareTask");
+  }
+
+  async unshareTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      shared: false,
+    };
+    return this.patchSingle(payload, "unshareTask");
+  }
+
   async scheduleTask(id: string, date: string, time?: string): Promise<Task> {
     const payload: UpdateTaskPayload = {
       id,

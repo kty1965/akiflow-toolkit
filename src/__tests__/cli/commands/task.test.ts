@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   type CliWriter,
   createDeleteCommand,
+  createDupCommand,
   createEditCommand,
   createMoveCommand,
   createPlanCommand,
+  createShareCommand,
   createSnoozeCommand,
   createTaskCommand,
+  createUnshareCommand,
   parseDateFlag,
   resolveInput,
   type TaskCache,
@@ -16,7 +19,7 @@ import {
 } from "@cli/commands/task.ts";
 import { NotFoundError, ValidationError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
-import type { UpdateTaskInput } from "@core/services/task-command-service.ts";
+import type { CreateTaskInput, UpdateTaskInput } from "@core/services/task-command-service.ts";
 import type { Task } from "@core/types.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -51,11 +54,21 @@ interface FakeTaskCommand {
     updateTask: Array<{ id: string; patch: UpdateTaskInput }>;
     scheduleTask: Array<{ id: string; date: string; time?: string }>;
     deleteTask: string[];
+    shareTask: string[];
+    unshareTask: string[];
+    createTask: CreateTaskInput[];
   };
 }
 
 function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) => Task): FakeTaskCommand {
-  const calls: FakeTaskCommand["calls"] = { updateTask: [], scheduleTask: [], deleteTask: [] };
+  const calls: FakeTaskCommand["calls"] = {
+    updateTask: [],
+    scheduleTask: [],
+    deleteTask: [],
+    shareTask: [],
+    unshareTask: [],
+    createTask: [],
+  };
   const service: TaskWriteApi = {
     async updateTask(id, patch) {
       calls.updateTask.push({ id, patch });
@@ -69,6 +82,18 @@ function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) =
       calls.deleteTask.push(id);
       return response(id);
     },
+    async shareTask(id) {
+      calls.shareTask.push(id);
+      return response(id);
+    },
+    async unshareTask(id) {
+      calls.unshareTask.push(id);
+      return response(id);
+    },
+    async createTask(input) {
+      calls.createTask.push(input);
+      return response("created-id", { title: input.title });
+    },
   };
   return { service, calls };
 }
@@ -81,6 +106,22 @@ function createFakeCache(tasks: Task[], shortMap: Record<string, string>): TaskC
     async resolveShortId(shortId) {
       return shortMap[shortId] ?? null;
     },
+  };
+}
+
+function createFakeTaskQuery(source: Task | null): {
+  taskQuery: { getTaskById(id: string): Promise<Task | null> };
+  calls: string[];
+} {
+  const calls: string[] = [];
+  return {
+    taskQuery: {
+      async getTaskById(id) {
+        calls.push(id);
+        return source;
+      },
+    },
+    calls,
   };
 }
 
@@ -766,22 +807,157 @@ describe("createDeleteCommand", () => {
 });
 
 // ---------------------------------------------------------------------------
+// createShareCommand / createUnshareCommand — shared flag flip
+// ---------------------------------------------------------------------------
+
+describe("createShareCommand", () => {
+  test("invokes shareTask with resolved UUID", async () => {
+    // Given: task + short ID '1'. When: share 1. Then: shareTask called, output includes 'Shared'.
+    const t = makeTask({ id: "u-18" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, shared: true }));
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(t);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createShareCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.shareTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Shared task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: share 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createShareCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+describe("createUnshareCommand", () => {
+  test("invokes unshareTask with resolved UUID", async () => {
+    // Given: shared task + short ID '1'. When: unshare 1. Then: unshareTask called, output includes 'Unshared'.
+    const t = makeTask({ id: "u-19", shared: true });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, shared: false }));
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(t);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createUnshareCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.unshareTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Unshared task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: unshare 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      taskQuery,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createUnshareCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDupCommand — read-then-create via task-duplicate.ts helper
+// ---------------------------------------------------------------------------
+
+describe("createDupCommand", () => {
+  test("resolves id, reads source via taskQuery, creates a copy, prints 'Duplicated'", async () => {
+    // Given: source task '1' resolvable via cache + live via taskQuery.getTaskById.
+    // When: dup 1. Then: createTask called with copied title, output includes 'Duplicated'.
+    const source = makeTask({ id: "u-20", title: "Original" });
+    const created = makeTask({ id: "u-21", title: "Original" });
+    const { service, calls } = createFakeTaskCommand(() => created);
+    const { stream, chunks } = capturingStream();
+    const { taskQuery } = createFakeTaskQuery(source);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([source], { "1": source.id }),
+      logger: silentLogger(),
+      taskQuery,
+    };
+    const cmd = createDupCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.createTask).toEqual([{ title: "Original" }]);
+    expect(chunks.join("")).toContain("Duplicated task");
+  });
+
+  test("live getTaskById lookup returns null → NOT_FOUND (exit 5), createTask never called", async () => {
+    // Given: id resolves via cache's short-ID map, but the live taskQuery.getTaskById
+    // lookup (a separate call from resolveInput's cache-based resolution) returns null.
+    const t = makeTask({ id: "u-22" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const { taskQuery } = createFakeTaskQuery(null);
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+      taskQuery,
+    };
+    const cmd = createDupCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.createTask).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createTaskCommand — composition smoke check
 // ---------------------------------------------------------------------------
 
 describe("createTaskCommand", () => {
-  test("exposes edit/move/plan/snooze/delete subcommands", () => {
-    // Given: composed task command. When: inspecting subCommands. Then: all five keys present.
+  test("exposes edit/move/plan/snooze/delete/share/unshare/dup subcommands", () => {
+    // Given: composed task command. When: inspecting subCommands. Then: all eight keys present.
+    const { taskQuery } = createFakeTaskQuery(null);
     const components: TaskCommandComponents = {
       taskCommand: createFakeTaskCommand((id) => ({ ...makeTask(), id })).service,
       cache: createFakeCache([], {}),
       logger: silentLogger(),
+      taskQuery,
     };
     const cmd = createTaskCommand(components);
     const subs = cmd.subCommands;
     if (!subs || typeof subs !== "object" || typeof subs === "function") {
       throw new Error("expected subCommands to be a plain object");
     }
-    expect(Object.keys(subs).sort()).toEqual(["delete", "edit", "move", "plan", "snooze"]);
+    expect(Object.keys(subs).sort()).toEqual(["delete", "dup", "edit", "move", "plan", "share", "snooze", "unshare"]);
   });
 });
