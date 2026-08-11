@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // AuthService — central authentication orchestrator (ADR-0003, ADR-0006, ADR-0011)
-// 4-tier hierarchical authentication: disk → browser readers → CDP (stub) → manual
+// 4-tier hierarchical authentication: disk → browser readers → CDP → manual
+// CDP (TASK-19) is interactive-only — see authenticateInteractive().
 // ---------------------------------------------------------------------------
 
 import { AuthExpiredError, AuthSourceMissingError, NetworkError } from "../errors/index.ts";
@@ -17,6 +18,7 @@ export interface AuthServiceDeps {
   refreshAccessToken: (refreshToken: string) => Promise<TokenRefreshResponse>;
   logger: LoggerPort;
   clientId?: string;
+  cdpLogin?: { login(loginUrl?: string): Promise<ExtractedToken | null> };
 }
 
 export class AuthService {
@@ -53,9 +55,39 @@ export class AuthService {
       }
     }
 
-    this.deps.logger.debug("CDP login not yet implemented (TASK-18)");
+    // CDP login is intentionally excluded here — this method is on the withAuth()
+    // recovery path used by every API call (including from the long-running MCP
+    // server), which must never block on a human completing a browser login.
+    // Interactive callers (af auth, af auth refresh) use authenticateInteractive().
 
     throw new AuthSourceMissingError("all sources exhausted");
+  }
+
+  /**
+   * Like `authenticate()`, but falls back to an interactive CDP browser login
+   * (ADR-0003 Tier 3b) when all other sources are exhausted. Only safe to call
+   * from explicit interactive terminal entrypoints — never from `withAuth()`.
+   */
+  async authenticateInteractive(): Promise<Credentials> {
+    try {
+      return await this.authenticate();
+    } catch (err) {
+      if (!(err instanceof AuthSourceMissingError)) throw err;
+      if (!this.deps.cdpLogin) throw err;
+
+      let extracted: ExtractedToken | null;
+      try {
+        extracted = await this.deps.cdpLogin.login();
+      } catch (cdpErr) {
+        this.deps.logger.debug("cdp login failed", { err: String(cdpErr) });
+        throw err;
+      }
+      if (!extracted) throw err;
+
+      const creds = await this.tokensToCredentials(extracted, null, "cdp");
+      await this.deps.storage.saveCredentials(creds);
+      return creds;
+    }
   }
 
   /**
@@ -209,9 +241,13 @@ export class AuthService {
     return creds.expiresAt <= Date.now();
   }
 
-  private async tokensToCredentials(extracted: ExtractedToken, existing: Credentials | null): Promise<Credentials> {
+  private async tokensToCredentials(
+    extracted: ExtractedToken,
+    existing: Credentials | null,
+    sourceOverride?: Credentials["source"],
+  ): Promise<Credentials> {
     const clientId = this.deps.clientId ?? existing?.clientId ?? crypto.randomUUID();
-    const source: Credentials["source"] = extracted.refreshToken ? "indexeddb" : "cookie";
+    const source: Credentials["source"] = sourceOverride ?? (extracted.refreshToken ? "indexeddb" : "cookie");
     const savedAt = new Date().toISOString();
 
     if (extracted.refreshToken) {

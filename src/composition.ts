@@ -4,7 +4,8 @@
 // Both CLI and MCP entry points call composeApp() exactly once.
 // ---------------------------------------------------------------------------
 
-import { createBrowserReaders } from "@adapters/browser/index.ts";
+import { join } from "node:path";
+import { CdpBrowserLogin, createBrowserReaders } from "@adapters/browser/index.ts";
 import { SyncCache } from "@adapters/fs/sync-cache.ts";
 import { XdgStorage } from "@adapters/fs/xdg-storage.ts";
 import { AkiflowHttpAdapter } from "@adapters/http/akiflow-api.ts";
@@ -17,6 +18,7 @@ import type { StoragePort } from "@core/ports/storage-port.ts";
 import { AuthService } from "@core/services/auth-service.ts";
 import { TaskCommandService } from "@core/services/task-command-service.ts";
 import { TaskQueryService } from "@core/services/task-query-service.ts";
+import type { ExtractedToken } from "@core/types.ts";
 
 export interface AppComponents {
   logger: LoggerPort;
@@ -33,14 +35,29 @@ export function composeApp(): AppComponents {
   const logger = new StderrLogger(config.logLevel, config.logFormat === "json");
   const storage = new XdgStorage(config.configDir);
   const browserReaders = createBrowserReaders(logger);
+  const http = new AkiflowHttpAdapter(crypto.randomUUID(), logger, config.apiBaseUrl);
+  const validateTokenFn = async (token: ExtractedToken): Promise<boolean> => {
+    try {
+      await http.getTasks(token.accessToken, { limit: 1 });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const cdpLogin = new CdpBrowserLogin({
+    logger,
+    userDataDir: join(config.configDir, "cdp-profile"),
+    port: config.cdpPort,
+    validateTokenFn,
+  });
   const authService = new AuthService({
     storage,
     browserReaders,
     refreshAccessToken,
     logger,
+    cdpLogin,
   });
   const cache = new SyncCache(config.cacheDir, config.cacheTtlSeconds);
-  const http = new AkiflowHttpAdapter(crypto.randomUUID(), logger, config.apiBaseUrl);
   const taskQuery = new TaskQueryService({
     auth: authService,
     http,
