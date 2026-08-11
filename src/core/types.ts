@@ -58,6 +58,8 @@ export interface UpdateTaskPayload {
   title?: string;
   date?: string | null;
   datetime?: string | null;
+  duration?: number | null;
+  listId?: string | null;
   done?: boolean;
   status?: TaskStatus;
   deleted_at?: string | null;
