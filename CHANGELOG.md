@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.3.0...v1.4.0) (2026-08-11)
+
+
+### Features
+
+* **tasks:** add uncomplete and restore actions ([89b02bb](https://github.com/kty1965/akiflow-toolkit/commit/89b02bbff156495bc9dac793f505cce066dacd65))
+
 # [1.3.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.2.1...v1.3.0) (2026-08-11)
 
 
