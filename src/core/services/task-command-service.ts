@@ -103,6 +103,16 @@ export class TaskCommandService {
     return this.patchSingle(payload, "completeTask");
   }
 
+  async uncompleteTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      done: false,
+      status: 0,
+    };
+    return this.patchSingle(payload, "uncompleteTask");
+  }
+
   async shareTask(id: string): Promise<Task> {
     const payload: UpdateTaskPayload = {
       id,
@@ -148,6 +158,15 @@ export class TaskCommandService {
       deleted_at: new Date().toISOString(),
     };
     return this.patchSingle(payload, "deleteTask");
+  }
+
+  async restoreTask(id: string): Promise<Task> {
+    const payload: UpdateTaskPayload = {
+      id,
+      global_updated_at: new Date().toISOString(),
+      deleted_at: null,
+    };
+    return this.patchSingle(payload, "restoreTask");
   }
 
   private async patchSingle(payload: CreateTaskPayload | UpdateTaskPayload, label: string): Promise<Task> {

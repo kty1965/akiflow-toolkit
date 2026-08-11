@@ -6,9 +6,11 @@ import {
   createEditCommand,
   createMoveCommand,
   createPlanCommand,
+  createRestoreCommand,
   createShareCommand,
   createSnoozeCommand,
   createTaskCommand,
+  createUndoCommand,
   createUnshareCommand,
   parseDateFlag,
   resolveInput,
@@ -54,6 +56,8 @@ interface FakeTaskCommand {
     updateTask: Array<{ id: string; patch: UpdateTaskInput }>;
     scheduleTask: Array<{ id: string; date: string; time?: string }>;
     deleteTask: string[];
+    uncompleteTask: string[];
+    restoreTask: string[];
     shareTask: string[];
     unshareTask: string[];
     createTask: CreateTaskInput[];
@@ -65,6 +69,8 @@ function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) =
     updateTask: [],
     scheduleTask: [],
     deleteTask: [],
+    uncompleteTask: [],
+    restoreTask: [],
     shareTask: [],
     unshareTask: [],
     createTask: [],
@@ -80,6 +86,14 @@ function createFakeTaskCommand(response: (id: string, patch?: UpdateTaskInput) =
     },
     async deleteTask(id) {
       calls.deleteTask.push(id);
+      return response(id);
+    },
+    async uncompleteTask(id: string) {
+      calls.uncompleteTask.push(id);
+      return response(id);
+    },
+    async restoreTask(id: string) {
+      calls.restoreTask.push(id);
       return response(id);
     },
     async shareTask(id) {
@@ -807,6 +821,86 @@ describe("createDeleteCommand", () => {
 });
 
 // ---------------------------------------------------------------------------
+// createUndoCommand — un-complete (sets done=false, status=0)
+// ---------------------------------------------------------------------------
+
+describe("createUndoCommand", () => {
+  test("invokes uncompleteTask with resolved UUID", async () => {
+    // Given: task + short ID '1'. When: undo 1. Then: uncompleteTask called, output includes 'Undone'.
+    const t = makeTask({ id: "u-9" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, done: false, status: 0 }));
+    const { stream, chunks } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createUndoCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.uncompleteTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Undone task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: undo 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createUndoCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createRestoreCommand — un-delete (clears deleted_at)
+// ---------------------------------------------------------------------------
+
+describe("createRestoreCommand", () => {
+  test("invokes restoreTask with resolved UUID", async () => {
+    // Given: task + short ID '1'. When: restore 1. Then: restoreTask called, output includes 'Restored'.
+    const t = makeTask({ id: "u-10", deleted_at: "2026-04-17T00:00:00Z" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id, deleted_at: null }));
+    const { stream, chunks } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createRestoreCommand(components, { stdout: stream });
+    await cmd.run?.({ rawArgs: ["1"], args: { _: ["1"], id: "1" }, cmd });
+
+    expect(calls.restoreTask).toEqual([t.id]);
+    expect(chunks.join("")).toContain("Restored task");
+  });
+
+  test("unknown ID exits with NOT_FOUND code (exit 5)", async () => {
+    // Given: cache has no matching task. When: restore 99. Then: handleCliError exits with 5.
+    const { service } = createFakeTaskCommand((id) => ({ ...makeTask(), id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([], {}),
+      logger: silentLogger(),
+    };
+    const cmd = createRestoreCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(cmd.run?.({ rawArgs: ["99"], args: { _: ["99"], id: "99" }, cmd })),
+    );
+
+    expect(exits).toEqual([5]);
+    expect(thrown).toBeInstanceOf(Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createShareCommand / createUnshareCommand — shared flag flip
 // ---------------------------------------------------------------------------
 
@@ -944,8 +1038,8 @@ describe("createDupCommand", () => {
 // ---------------------------------------------------------------------------
 
 describe("createTaskCommand", () => {
-  test("exposes edit/move/plan/snooze/delete/share/unshare/dup subcommands", () => {
-    // Given: composed task command. When: inspecting subCommands. Then: all eight keys present.
+  test("exposes edit/move/plan/snooze/delete/undo/restore/share/unshare/dup subcommands", () => {
+    // Given: composed task command. When: inspecting subCommands. Then: all ten keys present.
     const { taskQuery } = createFakeTaskQuery(null);
     const components: TaskCommandComponents = {
       taskCommand: createFakeTaskCommand((id) => ({ ...makeTask(), id })).service,
@@ -958,6 +1052,17 @@ describe("createTaskCommand", () => {
     if (!subs || typeof subs !== "object" || typeof subs === "function") {
       throw new Error("expected subCommands to be a plain object");
     }
-    expect(Object.keys(subs).sort()).toEqual(["delete", "dup", "edit", "move", "plan", "share", "snooze", "unshare"]);
+    expect(Object.keys(subs).sort()).toEqual([
+      "delete",
+      "dup",
+      "edit",
+      "move",
+      "plan",
+      "restore",
+      "share",
+      "snooze",
+      "undo",
+      "unshare",
+    ]);
   });
 });

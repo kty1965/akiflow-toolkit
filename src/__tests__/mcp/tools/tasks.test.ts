@@ -61,6 +61,9 @@ function buildDeps(overrides: { query?: QueryStub; command?: CommandStub } = {})
     completeTask: overrides.command?.completeTask ?? (async (id) => buildTask({ id, done: true, status: 1 })),
     deleteTask:
       overrides.command?.deleteTask ?? (async (id) => buildTask({ id, deleted_at: "2026-04-17T00:00:00.000Z" })),
+    uncompleteTask:
+      overrides.command?.uncompleteTask ?? (async (id: string) => buildTask({ id, done: false, status: 0 })),
+    restoreTask: overrides.command?.restoreTask ?? (async (id: string) => buildTask({ id, deleted_at: null })),
     shareTask: overrides.command?.shareTask ?? (async (id) => buildTask({ id, shared: true })),
     unshareTask: overrides.command?.unshareTask ?? (async (id) => buildTask({ id, shared: false })),
   };
@@ -98,7 +101,7 @@ describe("mcp/tools/tasks", () => {
   });
 
   describe("tool registration", () => {
-    test("registers exactly the ten task tools with ADR-0007 annotations", async () => {
+    test("registers exactly the twelve task tools with ADR-0007 annotations", async () => {
       // Given: tasks tools registered
       registerTaskTools(server, buildDeps());
       client = await connectClient(server);
@@ -107,7 +110,7 @@ describe("mcp/tools/tasks", () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
-      // Then: all 10 expected names are present and annotations follow the spec
+      // Then: all 12 expected names are present and annotations follow the spec
       expect(names).toEqual(
         [
           "complete_task",
@@ -116,8 +119,10 @@ describe("mcp/tools/tasks", () => {
           "duplicate_task",
           "get_task",
           "get_tasks",
+          "restore_task",
           "search_tasks",
           "share_task",
+          "uncomplete_task",
           "unshare_task",
           "update_task",
         ].sort(),
@@ -149,6 +154,20 @@ describe("mcp/tools/tasks", () => {
       expect(del?.annotations?.destructiveHint).toBe(true);
       expect(del?.annotations?.idempotentHint).toBe(true);
       expect(del?.description ?? "").toContain("Examples:");
+
+      // uncomplete_task / restore_task are recovery operations (undo of a prior
+      // destructive write), not destructive writes themselves — destructiveHint
+      // is deliberately omitted here, matching the codebase's convention for
+      // non-destructive tools (e.g. update_task) rather than set to `false`.
+      const uncomplete = tools.find((t) => t.name === "uncomplete_task");
+      expect(uncomplete?.annotations?.destructiveHint).toBeUndefined();
+      expect(uncomplete?.annotations?.idempotentHint).toBe(true);
+      expect(uncomplete?.description ?? "").toContain("Examples:");
+
+      const restore = tools.find((t) => t.name === "restore_task");
+      expect(restore?.annotations?.destructiveHint).toBeUndefined();
+      expect(restore?.annotations?.idempotentHint).toBe(true);
+      expect(restore?.description ?? "").toContain("Examples:");
 
       // share/unshare are not destructive and are idempotent (flipping a flag
       // to the same value repeatedly has no additional effect).
@@ -1008,6 +1027,62 @@ describe("mcp/tools/tasks", () => {
     });
   });
 
+  describe("uncomplete_task", () => {
+    test("calls uncompleteTask(id) and returns un-done summary", async () => {
+      // Given: uncompleteTask stub records id
+      const ids: string[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            uncompleteTask: async (id: string) => {
+              ids.push(id);
+              return buildTask({ id, title: "X", done: false, status: 0 });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: un-completing the task
+      const result = await client.callTool({
+        name: "uncomplete_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: service receives id, output uses "Uncompleted" verb without the done ✓ marker
+      expect(ids).toEqual(["abc"]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Uncompleted");
+      expect(textOf(result)).not.toContain("✓");
+    });
+
+    test("NetworkError → isError with userMessage", async () => {
+      // Given: uncompleteTask throws NetworkError
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            uncompleteTask: async () => {
+              throw new NetworkError("offline");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: "uncomplete_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError=true, userMessage surfaces
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("네트워크");
+    });
+  });
+
   describe("delete_task", () => {
     test("calls deleteTask(id) and returns Deleted summary", async () => {
       // Given: deleteTask stub records id
@@ -1056,6 +1131,63 @@ describe("mcp/tools/tasks", () => {
       // When: calling the tool
       const result = await client.callTool({
         name: "delete_task",
+        arguments: { id: "abc" },
+      });
+
+      // Then: isError flag and userMessage surface
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("네트워크");
+    });
+  });
+
+  describe("restore_task", () => {
+    test("calls restoreTask(id) and returns Restored summary", async () => {
+      // Given: restoreTask stub records id
+      const ids: string[] = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            restoreTask: async (id: string) => {
+              ids.push(id);
+              return buildTask({ id, title: "Recovered", deleted_at: null });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: restoring the task
+      const result = await client.callTool({
+        name: "restore_task",
+        arguments: { id: "zzz" },
+      });
+
+      // Then: service receives id, output uses "Restored" verb + task id
+      expect(ids).toEqual(["zzz"]);
+      expect(result.isError).toBeFalsy();
+      const text = textOf(result);
+      expect(text).toContain("Restored");
+      expect(text).toContain("zzz");
+    });
+
+    test("AkiflowError → isError with hint line", async () => {
+      // Given: restoreTask throws NetworkError
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            restoreTask: async () => {
+              throw new NetworkError("connection refused");
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: "restore_task",
         arguments: { id: "abc" },
       });
 

@@ -24,6 +24,8 @@ export interface TaskToolsDeps {
     updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
     completeTask(id: string): Promise<Task>;
     deleteTask(id: string): Promise<Task>;
+    uncompleteTask(id: string): Promise<Task>;
+    restoreTask(id: string): Promise<Task>;
     shareTask(id: string): Promise<Task>;
     unshareTask(id: string): Promise<Task>;
   };
@@ -46,6 +48,8 @@ export function registerTaskTools(server: McpServer, deps: TaskToolsDeps): void 
   registerUpdateTask(server, deps);
   registerCompleteTask(server, deps);
   registerDeleteTask(server, deps);
+  registerUncompleteTask(server, deps);
+  registerRestoreTask(server, deps);
   registerShareTask(server, deps);
   registerUnshareTask(server, deps);
   registerDuplicateTask(server, deps);
@@ -441,6 +445,81 @@ function registerDeleteTask(server: McpServer, deps: TaskToolsDeps): void {
         return textResult(formatSingleTask("Deleted", task));
       } catch (err) {
         return toolError(err, deps, "delete_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// uncomplete_task — recovery write (undo of complete_task)
+// ---------------------------------------------------------------------------
+
+const UncompleteTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to mark as not done"),
+} as const;
+
+function registerUncompleteTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "uncomplete_task",
+    {
+      description:
+        "Mark an Akiflow task as not done (undo a previous completion). Use when the user " +
+        "says a task was completed by mistake or needs to be reopened, e.g. 'undo completing " +
+        "task X', 'mark this as not done', or '이거 완료 취소해줘'. Returns the reopened " +
+        "task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Undo completing task' → { id: '<uuid>' }\n" +
+        "- 'Reopen the standup task' → { id: '<uuid>' }\n" +
+        "- '완료 취소해줘' → { id: '<uuid>' }",
+      inputSchema: UncompleteTaskInputShape,
+      annotations: {
+        title: "Uncomplete task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.uncompleteTask(args.id);
+        return textResult(formatSingleTask("Uncompleted", task));
+      } catch (err) {
+        return toolError(err, deps, "uncomplete_task");
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// restore_task — recovery write (undo of delete_task)
+// ---------------------------------------------------------------------------
+
+const RestoreTaskInputShape = {
+  id: z.string().min(1).describe("Task ID (UUID) to restore"),
+} as const;
+
+function registerRestoreTask(server: McpServer, deps: TaskToolsDeps): void {
+  server.registerTool(
+    "restore_task",
+    {
+      description:
+        "Restore a previously soft-deleted Akiflow task (clears deleted_at). Use when the " +
+        "user says a task was deleted by mistake and should come back, e.g. 'restore task X', " +
+        "'undo that delete', or '삭제한 태스크 복구해줘'. Returns the restored task summary.\n\n" +
+        "Examples:\n" +
+        "- 'Restore the task' → { id: '<uuid>' }\n" +
+        "- 'Undo the delete' → { id: '<uuid>' }\n" +
+        "- '삭제 취소해줘' → { id: '<uuid>' }",
+      inputSchema: RestoreTaskInputShape,
+      annotations: {
+        title: "Restore task",
+        idempotentHint: true,
+      },
+    },
+    async (args): Promise<ToolTextResult> => {
+      try {
+        const task = await deps.taskCommand.restoreTask(args.id);
+        return textResult(formatSingleTask("Restored", task));
+      } catch (err) {
+        return toolError(err, deps, "restore_task");
       }
     },
   );

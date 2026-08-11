@@ -319,6 +319,23 @@ describe("TaskCommandService", () => {
     });
   });
 
+  describe("uncompleteTask", () => {
+    test("sets done=false and status=0", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: uncompleteTask
+      await service.uncompleteTask("id-1");
+
+      // Then: payload has done=false and status=0
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.done).toBe(false);
+      expect(payload.status).toBe(0);
+      expect(payload.id).toBe("id-1");
+    });
+  });
+
   describe("shareTask / unshareTask", () => {
     test("shareTask sets shared=true", async () => {
       // Given: a capturing port
@@ -410,6 +427,22 @@ describe("TaskCommandService", () => {
     });
   });
 
+  describe("restoreTask", () => {
+    test("sets deleted_at to null", async () => {
+      // Given: a capturing port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: restoreTask
+      await service.restoreTask("id-1");
+
+      // Then: deleted_at is null
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.id).toBe("id-1");
+      expect(payload.deleted_at).toBeNull();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Cache integration — write methods must merge the server response into
   // the read cache so subsequent TaskQueryService.listTasks sees the write
@@ -479,7 +512,7 @@ describe("TaskCommandService", () => {
       expect(cache.upsertCalls[0].title).toBe("write-through");
     });
 
-    test("updateTask, completeTask, scheduleTask, unscheduleTask, deleteTask all upsert", async () => {
+    test("updateTask, completeTask, uncompleteTask, scheduleTask, unscheduleTask, deleteTask, restoreTask all upsert", async () => {
       // Given: a shared cache stub across successive writes
       const { port } = createHttp();
       const cache = createCacheStub();
@@ -493,12 +526,14 @@ describe("TaskCommandService", () => {
       // When: one of each write method is invoked
       await service.updateTask("id-u", { title: "renamed" });
       await service.completeTask("id-c");
+      await service.uncompleteTask("id-uc");
       await service.scheduleTask("id-s", "2026-04-20", "09:00");
       await service.unscheduleTask("id-us");
       await service.deleteTask("id-d");
+      await service.restoreTask("id-r");
 
       // Then: cache.upsertTask fired once per write, in order, with matching ids
-      expect(cache.upsertCalls.map((t) => t.id)).toEqual(["id-u", "id-c", "id-s", "id-us", "id-d"]);
+      expect(cache.upsertCalls.map((t) => t.id)).toEqual(["id-u", "id-c", "id-uc", "id-s", "id-us", "id-d", "id-r"]);
     });
 
     test("cache is optional — service works without a cache port (undefined)", async () => {
