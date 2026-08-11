@@ -411,6 +411,135 @@ describe("createEditCommand", () => {
     expect(calls.updateTask).toHaveLength(0);
   });
 
+  test("--parent updates parentId", async () => {
+    // Given: task + short ID '1'. When: edit 1 --parent parent-1. Then: updateTask called with {parentId:'parent-1'}.
+    const t = makeTask({ id: "u-15" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({
+      ...t,
+      id,
+      parent_id: patch?.parentId ?? null,
+    }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--parent", "parent-1"],
+          args: { _: ["1"], id: "1", parent: "parent-1" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { parentId: "parent-1" } }]);
+  });
+
+  test("--parent with no value exits with VALIDATION code instead of writing an empty parentId", async () => {
+    // Given: bare --parent (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-15b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--parent"],
+          args: { _: ["1"], id: "1", parent: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--position updates position as a number", async () => {
+    // Given: task + short ID '1'. When: edit 1 --position 3. Then: updateTask called with {position:3} (number).
+    const t = makeTask({ id: "u-16" });
+    const { service, calls } = createFakeTaskCommand((id, patch) => ({ ...t, id, position: patch?.position ?? null }));
+    const { stream } = capturingStream();
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: stream });
+    const { exits } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position", "3"],
+          args: { _: ["1"], id: "1", position: "3" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([]);
+    expect(calls.updateTask).toEqual([{ id: t.id, patch: { position: 3 } }]);
+  });
+
+  test("--position non-numeric exits with VALIDATION code (exit 4) without calling updateTask", async () => {
+    // Given: bogus position 'notanumber'. When: edit invoked. Then: handleCliError calls process.exit(4).
+    const t = makeTask({ id: "u-17" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position", "notanumber"],
+          args: { _: ["1"], id: "1", position: "notanumber" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
+  test("--position with no value exits with VALIDATION code instead of silently writing position 0", async () => {
+    // Given: bare --position (citty yields ""). When: edit invoked. Then: throws, does not call updateTask.
+    const t = makeTask({ id: "u-17b" });
+    const { service, calls } = createFakeTaskCommand((id) => ({ ...t, id }));
+    const components: TaskCommandComponents = {
+      taskCommand: service,
+      cache: createFakeCache([t], { "1": t.id }),
+      logger: silentLogger(),
+    };
+    const cmd = createEditCommand(components, { stdout: { write: () => true } });
+    const { exits, thrown } = await withMockedExit(() =>
+      Promise.resolve(
+        cmd.run?.({
+          rawArgs: ["1", "--position"],
+          args: { _: ["1"], id: "1", position: "" },
+          cmd,
+        }),
+      ),
+    );
+
+    expect(exits).toEqual([4]);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(calls.updateTask).toHaveLength(0);
+  });
+
   test("no flags at all still throws the 'at least one field' validation error", async () => {
     // Given: task + short ID '1'. When: edit 1 (no flags). Then: ValidationError → exit 4.
     const t = makeTask({ id: "u-14" });

@@ -39,6 +39,8 @@ export interface UpdateTaskInput {
   recurrence?: string | null;
   description?: string | null;
   priority?: number | null;
+  parentId?: string | null;
+  position?: number | null;
 }
 
 export interface TaskCommandServiceDeps {
@@ -85,6 +87,8 @@ export class TaskCommandService {
     if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence;
     if (patch.description !== undefined) payload.description = patch.description;
     if (patch.priority !== undefined) payload.priority = patch.priority;
+    if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
+    if (patch.position !== undefined) payload.position = patch.position;
 
     return this.patchSingle(payload, "updateTask");
   }

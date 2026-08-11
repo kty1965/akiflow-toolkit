@@ -844,6 +844,84 @@ describe("mcp/tools/tasks", () => {
       expect(calls[0]?.patch).toMatchObject({ projectId: "proj-2" });
     });
 
+    test("parent maps to parentId on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating parent
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", parent: "parent-2" },
+      });
+
+      // Then: patch contains parentId (mirrors project → projectId, not the raw wire name)
+      expect(calls[0]?.patch).toMatchObject({ parentId: "parent-2" });
+    });
+
+    test("position patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating position
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", position: 5 },
+      });
+
+      // Then: patch contains position
+      expect(calls[0]?.patch).toMatchObject({ position: 5 });
+    });
+
+    test("parent/position explicit nulls both clear on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing parent and position together
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", parent: null, position: null },
+      });
+
+      // Then: both are explicit nulls on the patch
+      expect(calls[0]?.patch).toEqual({ parentId: null, position: null });
+    });
+
     test("description/priority/project explicit nulls all clear on the patch", async () => {
       // Given: updateTask captures (id, patch)
       const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
