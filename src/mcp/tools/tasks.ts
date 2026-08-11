@@ -279,6 +279,17 @@ const UpdateTaskInputShape = {
     .nullable()
     .optional()
     .describe("New scheduled time (HH:MM) or null to clear"),
+  description: z.string().nullable().optional().describe("New description/notes, or null to clear"),
+  priority: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .describe(
+      "New priority level (Akiflow's exact priority scale is not publicly documented — pass the value as-is), or null to clear",
+    ),
+  duration: z.number().int().positive().nullable().optional().describe("New duration in minutes, or null to clear"),
+  project: z.string().nullable().optional().describe("New project/list ID to move the task to, or null to clear"),
 } as const;
 
 function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -286,12 +297,15 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
     "update_task",
     {
       description:
-        "Update fields on an existing Akiflow task (title/date/time). Use when the user " +
-        "asks to rename or reschedule a specific task, such as 'rename task X to Y' or " +
-        "'move this task to tomorrow'. Returns the updated task summary.\n\n" +
+        "Update fields on an existing Akiflow task (title/date/time/description/priority/" +
+        "duration/project). Use when the user asks to rename, reschedule, or otherwise edit " +
+        "a specific task, such as 'rename task X to Y', 'move this task to tomorrow', or " +
+        "'set priority on this task to 2'. Any field can be cleared by passing null. Returns " +
+        "the updated task summary.\n\n" +
         "Examples:\n" +
         "- 'Rename task to Write draft' → { id: '<uuid>', title: 'Write draft' }\n" +
         "- 'Move task to 2026-04-20' → { id: '<uuid>', date: '2026-04-20' }\n" +
+        "- 'Set duration to 30 minutes' → { id: '<uuid>', duration: 30 }\n" +
         "- '이 태스크 시간 비워줘' → { id: '<uuid>', time: null }",
       inputSchema: UpdateTaskInputShape,
       annotations: {
@@ -305,6 +319,10 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
           title?: string;
           date?: string | null;
           datetime?: string | null;
+          description?: string | null;
+          priority?: number | null;
+          duration?: number | null;
+          projectId?: string | null;
         } = {};
         if (args.title !== undefined) patch.title = args.title;
         if (args.date !== undefined) patch.date = args.date;
@@ -322,6 +340,10 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
             patch.datetime = `${resolvedDate}T${args.time}:00`;
           }
         }
+        if (args.description !== undefined) patch.description = args.description;
+        if (args.priority !== undefined) patch.priority = args.priority;
+        if (args.duration !== undefined) patch.duration = args.duration === null ? null : args.duration * 60_000;
+        if (args.project !== undefined) patch.projectId = args.project;
 
         if (Object.keys(patch).length === 0) {
           return textResult("update_task: no fields to update.", true);

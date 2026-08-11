@@ -713,6 +713,162 @@ describe("mcp/tools/tasks", () => {
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("Akiflow 서버에 연결할 수 없습니다");
     });
+
+    test("description patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating description
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", description: "notes" },
+      });
+
+      // Then: patch contains description
+      expect(calls[0]?.patch).toMatchObject({ description: "notes" });
+    });
+
+    test("priority patch is forwarded to updateTask", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating priority
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", priority: 3 },
+      });
+
+      // Then: patch contains priority
+      expect(calls[0]?.patch).toMatchObject({ priority: 3 });
+    });
+
+    test("duration (minutes) converts to ms on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating duration=30 (minutes)
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", duration: 30 },
+      });
+
+      // Then: patch.duration is in ms (30 * 60_000)
+      expect(calls[0]?.patch).toMatchObject({ duration: 30 * 60_000 });
+    });
+
+    test("duration=null clears duration without multiplying (not NaN/0)", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing duration
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", duration: null },
+      });
+
+      // Then: patch.duration is explicitly null, not NaN/0 from a naive `null * 60_000`
+      expect(calls[0]?.patch).toEqual({ duration: null });
+    });
+
+    test("project maps to projectId on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: updating project
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", project: "proj-2" },
+      });
+
+      // Then: patch contains projectId
+      expect(calls[0]?.patch).toMatchObject({ projectId: "proj-2" });
+    });
+
+    test("description/priority/project explicit nulls all clear on the patch", async () => {
+      // Given: updateTask captures (id, patch)
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing description, priority, and project together
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", description: null, priority: null, project: null },
+      });
+
+      // Then: all three are explicit nulls on the patch
+      expect(calls[0]?.patch).toEqual({ description: null, priority: null, projectId: null });
+    });
   });
 
   describe("complete_task", () => {
