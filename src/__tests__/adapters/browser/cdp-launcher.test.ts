@@ -357,6 +357,66 @@ describe("waitForLogin", () => {
     expect(token.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 
+  test("captures token from a URL that matches no known pattern, via JSON mimeType fallback", async () => {
+    // Given: a response on an endpoint the hardcoded URL patterns don't cover
+    // (e.g. a first-time login exchange hitting a path we haven't seen yet)
+    const ws = new FakeWebSocket();
+    const login = makeLogin();
+    const promise = login.waitForLogin(ws);
+
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: {
+        requestId: "req-99",
+        response: { url: "https://auth.akiflow.com/oauth/authorize/exchange", mimeType: "application/json" },
+      },
+    });
+    ws.emitMessage({
+      method: "Network.loadingFinished",
+      params: { requestId: "req-99" },
+    });
+
+    const lastSent = ws.sentCommand(ws.sent.length - 1);
+    expect(lastSent.method).toBe("Network.getResponseBody");
+    ws.emitMessage({
+      id: lastSent.id,
+      result: {
+        body: JSON.stringify({ access_token: "FALLBACK_TOKEN" }),
+        base64Encoded: false,
+      },
+    });
+
+    const token = await promise;
+    expect(token.accessToken).toBe("FALLBACK_TOKEN");
+  });
+
+  test("ignores non-JSON responses on unrecognized URLs (e.g. static assets)", async () => {
+    // Given: a JS bundle response — should never trigger a getResponseBody call
+    const ws = new FakeWebSocket();
+    const login = makeLogin({ loginTimeoutMs: 50 });
+    const promise = login.waitForLogin(ws);
+
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: {
+        requestId: "req-js",
+        response: { url: "https://web.akiflow.com/assets/app.js", mimeType: "application/javascript" },
+      },
+    });
+    ws.emitMessage({
+      method: "Network.loadingFinished",
+      params: { requestId: "req-js" },
+    });
+
+    // No getResponseBody should have been sent for the untracked request —
+    // only the two Network.enable/Page.enable commands from "open".
+    expect(ws.sent).toHaveLength(2);
+
+    await expect(promise).rejects.toBeInstanceOf(BrowserDataError);
+  });
+
   test("rejects with BrowserDataError when WebSocket closes before token captured", async () => {
     // Given
     const ws = new FakeWebSocket();

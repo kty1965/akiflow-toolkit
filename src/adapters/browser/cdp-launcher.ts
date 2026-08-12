@@ -17,7 +17,13 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
 const DISCOVERY_POLL_INTERVAL_MS = 100;
 const DEFAULT_LOGIN_URL = "https://web.akiflow.com/auth/login";
 
-const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/user/me"] as const;
+// Fast-path hints only — Akiflow's SPA has moved its token-issuing endpoint
+// before (web.akiflow.com → auth.akiflow.com split, see docs/akiflow-token-acquisition.md
+// §3) and the *first-time* login exchange may not hit either of these at all
+// (e.g. an authorization_code grant on a path neither pattern covers). Treat
+// this list as an optimization, not the sole detection mechanism — see the
+// mimeType-based fallback in waitForLogin().
+const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/oauth/token", "/user/me"] as const;
 
 // Security (SECURITY-AUDIT-REPORT S-13): reject CDP endpoints that a local
 // port squatter could masquerade as. We validate the Browser identity from
@@ -376,7 +382,15 @@ export class CdpBrowserLogin {
           const requestId = readString(params, "requestId");
           const response = readObject(params, "response");
           const url = readString(response, "url") ?? "";
-          if (requestId && TOKEN_URL_PATTERNS.some((p) => url.includes(p))) {
+          const mimeType = readString(response, "mimeType") ?? "";
+          // Known endpoints are a fast-path hint, not a gate: any JSON response
+          // is a candidate, since we can't be sure which endpoint the SPA uses
+          // for a first-time (no prior refresh_token) login exchange. A
+          // response only ever resolves the promise if its body actually
+          // parses into a token shape (parseTokenBody) — false positives here
+          // just get silently discarded below, so this stays safe to widen.
+          const isCandidate = TOKEN_URL_PATTERNS.some((p) => url.includes(p)) || mimeType.includes("json");
+          if (requestId && isCandidate) {
             trackedRequests.set(requestId, url);
           }
           return;
