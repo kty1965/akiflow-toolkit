@@ -103,6 +103,27 @@ function makeLogin(overrides: MakeOptionsOverrides = {}): CdpBrowserLogin {
   });
 }
 
+/**
+ * A fetchFn that answers both discovery endpoints `login()` polls: the
+ * browser-level `/json/version` (Browser identity + port-squat check) and
+ * the page-level `/json/list` (the actual target `waitForLogin()` attaches
+ * to, since the browser-level socket can't receive Network.* events).
+ */
+function makeDiscoveryFetchFn(port: number, browserId = "Chrome/122.0.6261.94") {
+  return mock(async (url: string): Promise<CdpFetchResponse> => {
+    if (url.endsWith("/json/list")) {
+      return {
+        ok: true,
+        json: async () => [{ type: "page", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/p1` }],
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ Browser: browserId, webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/x` }),
+    };
+  });
+}
+
 // --- findChromePath -------------------------------------------------------
 
 describe("findChromePath", () => {
@@ -306,6 +327,59 @@ describe("getWebSocketUrl", () => {
   });
 });
 
+// --- getPageDebuggerUrl ----------------------------------------------------
+
+describe("getPageDebuggerUrl", () => {
+  test("returns the page target's webSocketDebuggerUrl from /json/list", async () => {
+    // Given: /json/list reports one page target alongside non-page targets
+    const fetchFn = mock(
+      async (): Promise<CdpFetchResponse> => ({
+        ok: true,
+        json: async () => [
+          { type: "background_page", webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/page/ext" },
+          { type: "page", webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/page/abc" },
+        ],
+      }),
+    );
+    const login = makeLogin({ fetchFn });
+
+    // When
+    const ws = await login.getPageDebuggerUrl();
+
+    // Then: only the "page" target is picked, not the extension target
+    expect(ws).toBe("ws://127.0.0.1:9999/devtools/page/abc");
+  });
+
+  test("throws BrowserDataError when discovery exceeds the configured timeout", async () => {
+    // Given: /json/list never lists a page target (e.g. Chrome still starting)
+    const fetchFn = mock(
+      async (): Promise<CdpFetchResponse> => ({
+        ok: true,
+        json: async () => [],
+      }),
+    );
+    const login = makeLogin({ fetchFn, discoveryTimeoutMs: 150 });
+
+    // When/Then
+    await expect(login.getPageDebuggerUrl()).rejects.toBeInstanceOf(BrowserDataError);
+  });
+
+  // Security (SECURITY-AUDIT-REPORT S-13): port-squat defense, same as getWebSocketUrl.
+  test("rejects a page webSocketDebuggerUrl that points off-host or off-port", async () => {
+    // Given: a page target whose ws URL points off-box
+    const fetchFn = mock(
+      async (): Promise<CdpFetchResponse> => ({
+        ok: true,
+        json: async () => [{ type: "page", webSocketDebuggerUrl: "ws://attacker.example.com:9999/devtools/page/abc" }],
+      }),
+    );
+    const login = makeLogin({ fetchFn, discoveryTimeoutMs: 500 });
+
+    // When / Then
+    await expect(login.getPageDebuggerUrl()).rejects.toThrow(/not ws:\/\/127\.0\.0\.1:9999/);
+  });
+});
+
 // --- waitForLogin ---------------------------------------------------------
 
 describe("waitForLogin", () => {
@@ -355,6 +429,66 @@ describe("waitForLogin", () => {
     expect(token.accessToken).toBe("ACCESS_TOKEN_VALUE");
     expect(token.refreshToken).toBe("REFRESH_TOKEN_VALUE");
     expect(token.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+  });
+
+  test("captures token from a URL that matches no known pattern, via JSON mimeType fallback", async () => {
+    // Given: a response on an endpoint the hardcoded URL patterns don't cover
+    // (e.g. a first-time login exchange hitting a path we haven't seen yet)
+    const ws = new FakeWebSocket();
+    const login = makeLogin();
+    const promise = login.waitForLogin(ws);
+
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: {
+        requestId: "req-99",
+        response: { url: "https://auth.akiflow.com/oauth/authorize/exchange", mimeType: "application/json" },
+      },
+    });
+    ws.emitMessage({
+      method: "Network.loadingFinished",
+      params: { requestId: "req-99" },
+    });
+
+    const lastSent = ws.sentCommand(ws.sent.length - 1);
+    expect(lastSent.method).toBe("Network.getResponseBody");
+    ws.emitMessage({
+      id: lastSent.id,
+      result: {
+        body: JSON.stringify({ access_token: "FALLBACK_TOKEN" }),
+        base64Encoded: false,
+      },
+    });
+
+    const token = await promise;
+    expect(token.accessToken).toBe("FALLBACK_TOKEN");
+  });
+
+  test("ignores non-JSON responses on unrecognized URLs (e.g. static assets)", async () => {
+    // Given: a JS bundle response — should never trigger a getResponseBody call
+    const ws = new FakeWebSocket();
+    const login = makeLogin({ loginTimeoutMs: 50 });
+    const promise = login.waitForLogin(ws);
+
+    ws.emit("open");
+    ws.emitMessage({
+      method: "Network.responseReceived",
+      params: {
+        requestId: "req-js",
+        response: { url: "https://web.akiflow.com/assets/app.js", mimeType: "application/javascript" },
+      },
+    });
+    ws.emitMessage({
+      method: "Network.loadingFinished",
+      params: { requestId: "req-js" },
+    });
+
+    // No getResponseBody should have been sent for the untracked request —
+    // only the two Network.enable/Page.enable commands from "open".
+    expect(ws.sent).toHaveLength(2);
+
+    await expect(promise).rejects.toBeInstanceOf(BrowserDataError);
   });
 
   test("rejects with BrowserDataError when WebSocket closes before token captured", async () => {
@@ -415,12 +549,7 @@ describe("login", () => {
     const child = new FakeChildProcess();
     const ws = new FakeWebSocket();
     const spawnFn = mock(() => child);
-    const fetchFn = mock(
-      async (): Promise<CdpFetchResponse> => ({
-        ok: true,
-        json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/x" }),
-      }),
-    );
+    const fetchFn = makeDiscoveryFetchFn(9999);
     const createWebSocketFn = mock(() => ws);
 
     const login = new CdpBrowserLogin({
@@ -468,15 +597,7 @@ describe("login", () => {
     const child = new FakeChildProcess();
     const ws = new FakeWebSocket();
     const spawnFn = mock(() => child);
-    const fetchFn = mock(
-      async (): Promise<CdpFetchResponse> => ({
-        ok: true,
-        json: async () => ({
-          Browser: "Chrome/122.0.6261.94",
-          webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/x",
-        }),
-      }),
-    );
+    const fetchFn = makeDiscoveryFetchFn(9999);
     const createWebSocketFn = mock(() => ws);
     const validateTokenFn = mock(async () => false); // reject
 
@@ -526,15 +647,7 @@ describe("login", () => {
       loginTimeoutMs: 1_000,
       discoveryTimeoutMs: 200,
       spawnFn: mock(() => child),
-      fetchFn: mock(
-        async (): Promise<CdpFetchResponse> => ({
-          ok: true,
-          json: async () => ({
-            Browser: "Chrome/122.0.6261.94",
-            webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/browser/x",
-          }),
-        }),
-      ),
+      fetchFn: makeDiscoveryFetchFn(9999),
       createWebSocketFn: mock(() => ws),
       validateTokenFn,
     });

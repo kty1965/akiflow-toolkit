@@ -17,7 +17,13 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
 const DISCOVERY_POLL_INTERVAL_MS = 100;
 const DEFAULT_LOGIN_URL = "https://web.akiflow.com/auth/login";
 
-const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/user/me"] as const;
+// Fast-path hints only — Akiflow's SPA has moved its token-issuing endpoint
+// before (web.akiflow.com → auth.akiflow.com split, see docs/akiflow-token-acquisition.md
+// §3) and the *first-time* login exchange may not hit either of these at all
+// (e.g. an authorization_code grant on a path neither pattern covers). Treat
+// this list as an optimization, not the sole detection mechanism — see the
+// mimeType-based fallback in waitForLogin().
+const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/oauth/token", "/user/me"] as const;
 
 // Security (SECURITY-AUDIT-REPORT S-13): reject CDP endpoints that a local
 // port squatter could masquerade as. We validate the Browser identity from
@@ -203,8 +209,9 @@ export class CdpBrowserLogin {
     const child = this.launchChrome(chromePath, url);
     let ws: MinimalWebSocket | null = null;
     try {
-      const wsUrl = await this.getWebSocketUrl();
-      ws = this.createWebSocketFn(wsUrl);
+      await this.getWebSocketUrl();
+      const pageWsUrl = await this.getPageDebuggerUrl();
+      ws = this.createWebSocketFn(pageWsUrl);
       const captured = await this.waitForLogin(ws);
       const token: ExtractedToken = { ...captured, browser: this.labelFor(chromePath) };
 
@@ -313,6 +320,53 @@ export class CdpBrowserLogin {
   }
 
   /**
+   * Poll `/json/list` for the launched tab's page-level `webSocketDebuggerUrl`.
+   *
+   * The browser-level socket from `getWebSocketUrl()` cannot receive
+   * `Network.*` events — Chrome's browser session doesn't support the
+   * Network domain there (`Network.enable` replies with "wasn't found") —
+   * so `waitForLogin()` must attach to the page target directly.
+   *
+   * Security (SECURITY-AUDIT-REPORT S-13): same port-squat defense as
+   * `getWebSocketUrl()` — reject a page `webSocketDebuggerUrl` that isn't
+   * `ws://127.0.0.1:<this.port>/…`.
+   */
+  async getPageDebuggerUrl(): Promise<string> {
+    const endpoint = `http://127.0.0.1:${this.port}/json/list`;
+    const start = Date.now();
+    let lastError: unknown;
+
+    while (Date.now() - start < this.discoveryTimeoutMs) {
+      try {
+        const res = await this.fetchFn(endpoint);
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json)) {
+            for (const entry of json) {
+              if (readString(entry, "type") !== "page") continue;
+              const wsUrl = readString(entry, "webSocketDebuggerUrl");
+              if (!wsUrl) continue;
+              if (!isLocalDebuggerUrl(wsUrl, this.port)) {
+                throw new BrowserDataError(
+                  `CDP page target webSocketDebuggerUrl '${wsUrl}' is not ws://127.0.0.1:${this.port}/… — aborting (possible port squat)`,
+                );
+              }
+              return wsUrl;
+            }
+          }
+        }
+      } catch (err) {
+        lastError = err;
+      }
+      await sleep(DISCOVERY_POLL_INTERVAL_MS);
+    }
+    const errSuffix = lastError ? ` (last error: ${(lastError as Error).message})` : "";
+    throw new BrowserDataError(
+      `CDP page target discovery timed out after ${this.discoveryTimeoutMs}ms on port ${this.port}${errSuffix}`,
+    );
+  }
+
+  /**
    * Subscribe to CDP Network domain, wait until a token-bearing response is captured,
    * and resolve with the parsed token. Rejects on timeout, ws close, or ws error.
    */
@@ -376,7 +430,15 @@ export class CdpBrowserLogin {
           const requestId = readString(params, "requestId");
           const response = readObject(params, "response");
           const url = readString(response, "url") ?? "";
-          if (requestId && TOKEN_URL_PATTERNS.some((p) => url.includes(p))) {
+          const mimeType = readString(response, "mimeType") ?? "";
+          // Known endpoints are a fast-path hint, not a gate: any JSON response
+          // is a candidate, since we can't be sure which endpoint the SPA uses
+          // for a first-time (no prior refresh_token) login exchange. A
+          // response only ever resolves the promise if its body actually
+          // parses into a token shape (parseTokenBody) — false positives here
+          // just get silently discarded below, so this stays safe to widen.
+          const isCandidate = TOKEN_URL_PATTERNS.some((p) => url.includes(p)) || mimeType.includes("json");
+          if (requestId && isCandidate) {
             trackedRequests.set(requestId, url);
           }
           return;
