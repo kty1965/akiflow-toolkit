@@ -209,8 +209,9 @@ export class CdpBrowserLogin {
     const child = this.launchChrome(chromePath, url);
     let ws: MinimalWebSocket | null = null;
     try {
-      const wsUrl = await this.getWebSocketUrl();
-      ws = this.createWebSocketFn(wsUrl);
+      await this.getWebSocketUrl();
+      const pageWsUrl = await this.getPageDebuggerUrl();
+      ws = this.createWebSocketFn(pageWsUrl);
       const captured = await this.waitForLogin(ws);
       const token: ExtractedToken = { ...captured, browser: this.labelFor(chromePath) };
 
@@ -315,6 +316,53 @@ export class CdpBrowserLogin {
     const errSuffix = lastError ? ` (last error: ${(lastError as Error).message})` : "";
     throw new BrowserDataError(
       `CDP discovery timed out after ${this.discoveryTimeoutMs}ms on port ${this.port}${errSuffix}`,
+    );
+  }
+
+  /**
+   * Poll `/json/list` for the launched tab's page-level `webSocketDebuggerUrl`.
+   *
+   * The browser-level socket from `getWebSocketUrl()` cannot receive
+   * `Network.*` events — Chrome's browser session doesn't support the
+   * Network domain there (`Network.enable` replies with "wasn't found") —
+   * so `waitForLogin()` must attach to the page target directly.
+   *
+   * Security (SECURITY-AUDIT-REPORT S-13): same port-squat defense as
+   * `getWebSocketUrl()` — reject a page `webSocketDebuggerUrl` that isn't
+   * `ws://127.0.0.1:<this.port>/…`.
+   */
+  async getPageDebuggerUrl(): Promise<string> {
+    const endpoint = `http://127.0.0.1:${this.port}/json/list`;
+    const start = Date.now();
+    let lastError: unknown;
+
+    while (Date.now() - start < this.discoveryTimeoutMs) {
+      try {
+        const res = await this.fetchFn(endpoint);
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json)) {
+            for (const entry of json) {
+              if (readString(entry, "type") !== "page") continue;
+              const wsUrl = readString(entry, "webSocketDebuggerUrl");
+              if (!wsUrl) continue;
+              if (!isLocalDebuggerUrl(wsUrl, this.port)) {
+                throw new BrowserDataError(
+                  `CDP page target webSocketDebuggerUrl '${wsUrl}' is not ws://127.0.0.1:${this.port}/… — aborting (possible port squat)`,
+                );
+              }
+              return wsUrl;
+            }
+          }
+        }
+      } catch (err) {
+        lastError = err;
+      }
+      await sleep(DISCOVERY_POLL_INTERVAL_MS);
+    }
+    const errSuffix = lastError ? ` (last error: ${(lastError as Error).message})` : "";
+    throw new BrowserDataError(
+      `CDP page target discovery timed out after ${this.discoveryTimeoutMs}ms on port ${this.port}${errSuffix}`,
     );
   }
 
