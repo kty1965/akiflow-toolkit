@@ -1,3 +1,11 @@
+## [1.4.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.4.0...v1.4.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **auth:** attach CDP network capture to the page target, not the browser session ([49b5c17](https://github.com/kty1965/akiflow-toolkit/commit/49b5c17dc9c3a3db19926de12d61cafd62c6518e)), closes [#79](https://github.com/kty1965/akiflow-toolkit/issues/79)
+* **auth:** broaden CDP login token capture beyond hardcoded URL patterns ([527619c](https://github.com/kty1965/akiflow-toolkit/commit/527619c81c1e9af6e35727cf9062219bf46f31a0)), closes [#79](https://github.com/kty1965/akiflow-toolkit/issues/79)
+
 # [1.4.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.3.0...v1.4.0) (2026-08-11)
 
 
