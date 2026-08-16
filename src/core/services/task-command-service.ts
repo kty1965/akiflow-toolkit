@@ -38,6 +38,7 @@ export interface CreateTaskInput {
   datetime?: string;
   duration?: number;
   projectId?: string;
+  deadline?: string;
 }
 
 export interface UpdateTaskInput {
@@ -52,6 +53,7 @@ export interface UpdateTaskInput {
   parentId?: string | null;
   position?: number | null;
   tags?: string[];
+  deadline?: string | null;
 }
 
 export interface TaskCommandServiceDeps {
@@ -81,6 +83,7 @@ export class TaskCommandService {
     if (input.datetime !== undefined) payload.datetime = input.datetime;
     if (input.duration !== undefined) payload.duration = input.duration;
     if (input.projectId !== undefined) payload.listId = input.projectId;
+    if (input.deadline !== undefined) payload.due_date = input.deadline;
 
     return this.patchSingle(payload, "createTask");
   }
@@ -101,6 +104,7 @@ export class TaskCommandService {
     if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
     if (patch.position !== undefined) payload.position = patch.position;
     if (patch.tags !== undefined) payload.tags_ids = patch.tags;
+    if (patch.deadline !== undefined) payload.due_date = patch.deadline;
 
     return this.patchSingle(payload, "updateTask");
   }

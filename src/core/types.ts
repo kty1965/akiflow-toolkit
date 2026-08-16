@@ -37,6 +37,7 @@ export interface Task {
   source: string | null;
   parent_id: string | null;
   position: number | null;
+  due_date: string | null; // YYYY-MM-DD — deadline, distinct from `date` (scheduled day)
 }
 
 // Create payload — H1: client-side UUID required for PATCH UPSERT
@@ -47,6 +48,7 @@ export interface CreateTaskPayload {
   datetime?: string;
   duration?: number;
   listId?: string;
+  due_date?: string;
   global_created_at: string;
   global_updated_at: string;
 }
@@ -70,6 +72,7 @@ export interface UpdateTaskPayload {
   position?: number | null;
   shared?: boolean;
   tags_ids?: string[];
+  due_date?: string | null;
 }
 
 // Label
