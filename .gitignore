@@ -37,6 +37,9 @@ auth.json
 # npm pack output
 *.tgz
 
+# Claude Code worktrees (per-developer, non-shareable)
+.claude/worktrees/
+
 # Coverage
 coverage/
 
