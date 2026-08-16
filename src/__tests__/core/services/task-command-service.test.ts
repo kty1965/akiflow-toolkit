@@ -320,7 +320,7 @@ describe("TaskCommandService", () => {
   });
 
   describe("uncompleteTask", () => {
-    test("sets done=false and status=0", async () => {
+    test("sets done=false and omits status (Akiflow rejects status:0/null as invalid)", async () => {
       // Given: a capturing port
       const { port, calls } = createHttp();
       const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
@@ -328,10 +328,13 @@ describe("TaskCommandService", () => {
       // When: uncompleteTask
       await service.uncompleteTask("id-1");
 
-      // Then: payload has done=false and status=0
+      // Then: payload has done=false and no status field — a live probe against the
+      // real API confirmed status:0 fails validation ("The selected status is
+      // invalid") and status:null fails too ("The status field must have a value"),
+      // while omitting status entirely succeeds and clears done.
       const payload = calls[0].tasks[0] as UpdateTaskPayload;
       expect(payload.done).toBe(false);
-      expect(payload.status).toBe(0);
+      expect(payload.status).toBeUndefined();
       expect(payload.id).toBe("id-1");
     });
   });
