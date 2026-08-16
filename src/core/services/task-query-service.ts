@@ -8,7 +8,7 @@
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type { Calendar, CalendarEvent, Label, Tag, Task, TaskQueryOptions } from "../types.ts";
+import type { Calendar, CalendarEvent, Label, MeetingBrief, Recording, Tag, Task, TaskQueryOptions } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
 import type { AuthService } from "./auth-service.ts";
@@ -165,6 +165,51 @@ export class TaskQueryService {
       READ_RETRY_POLICY,
     );
     return res.data;
+  }
+
+  // Meeting Assistant is a paid Akiflow add-on — an empty list here typically
+  // means the account has no recordings/briefs yet, not necessarily an error.
+
+  async getRecordings(): Promise<Recording[]> {
+    const collected: Recording[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await withRetry(
+        () => this.deps.auth.withAuth((token) => this.deps.http.getRecordings(token, cursor)),
+        READ_RETRY_POLICY,
+      );
+      collected.push(...page.data);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    return collected;
+  }
+
+  async getRecording(id: string): Promise<Recording> {
+    return withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.getRecording(token, id)),
+      READ_RETRY_POLICY,
+    );
+  }
+
+  async getMeetingBriefs(): Promise<MeetingBrief[]> {
+    const collected: MeetingBrief[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await withRetry(
+        () => this.deps.auth.withAuth((token) => this.deps.http.getMeetingBriefs(token, cursor)),
+        READ_RETRY_POLICY,
+      );
+      collected.push(...page.data);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    return collected;
+  }
+
+  async getMeetingBrief(id: string): Promise<MeetingBrief> {
+    return withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.getMeetingBrief(token, id)),
+      READ_RETRY_POLICY,
+    );
   }
 }
 

@@ -3,18 +3,23 @@
 // Read-only tools that wrap TaskQueryService for calendar event retrieval.
 // ---------------------------------------------------------------------------
 
+import type { TaskCommandService } from "@core/services/task-command-service.ts";
 import type { TaskQueryService } from "@core/services/task-query-service.ts";
-import type { CalendarEvent } from "@core/types.ts";
+import type { Calendar, CalendarEvent } from "@core/types.ts";
 import { computeFreeSlotsByDate, type FreeSlot } from "@core/utils/free-slots.ts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 export interface CalendarToolsDeps {
-  taskQuery: Pick<TaskQueryService, "getEvents">;
+  taskQuery: Pick<TaskQueryService, "getEvents" | "getCalendars">;
+  taskCommand: Pick<TaskCommandService, "createEvent" | "deleteEvent">;
 }
 
 export const GET_EVENTS_TOOL_NAME = "get_events";
 export const GET_FREE_SLOTS_TOOL_NAME = "get_free_slots";
+export const GET_CALENDARS_TOOL_NAME = "get_calendars";
+export const CREATE_EVENT_TOOL_NAME = "create_event";
+export const DELETE_EVENT_TOOL_NAME = "delete_event";
 
 export const DEFAULT_WORK_START = "09:00";
 export const DEFAULT_WORK_END = "18:00";
@@ -32,6 +37,24 @@ export const GET_FREE_SLOTS_DESCRIPTION =
   "날짜 미지정 시 오늘 기준, days 미지정 시 1일만 조회, 업무 시간 미지정 시 09:00-18:00. " +
   "결과는 날짜별 빈 슬롯 목록 (HH:MM-HH:MM). " +
   "예: '오늘 빈 시간 알려줘', '내일 11시~6시 사이 비는 시간', '이번 주 집중 작업 시간 찾아줘'";
+
+export const GET_CALENDARS_DESCRIPTION =
+  "연결된 캘린더 목록을 조회합니다 (Google Calendar 등). " +
+  "이벤트를 생성하기 전에 어느 캘린더에 넣을지 calendar_id를 확인할 때 사용합니다. " +
+  "결과는 캘린더 목록 (id, name, provider, read_only 여부). " +
+  "예: '캘린더 목록 보여줘', '어떤 캘린더에 일정 넣을 수 있어?'";
+
+export const CREATE_EVENT_DESCRIPTION =
+  "Akiflow 캘린더에 새 이벤트(일정/회의)를 생성합니다. 연결된 캘린더(Google 등)에 동기화됩니다. " +
+  "calendar_id는 get_calendars로 미리 확인해야 하며, read-only 캘린더는 지정할 수 없습니다. " +
+  "결과는 생성된 이벤트 요약 (id, title, 시간). " +
+  "예: '내일 오후 2시에 팀 미팅 잡아줘', '금요일 종일 휴가 일정 추가해줘'";
+
+export const DELETE_EVENT_DESCRIPTION =
+  "Akiflow 캘린더 이벤트를 삭제(취소)합니다. 연결된 캘린더(Google 등)에도 동기화됩니다. " +
+  "calendar_id와 event_id는 get_events/get_calendars로 미리 확인해야 하며, read-only 캘린더의 이벤트는 삭제할 수 없습니다. " +
+  "결과는 삭제된 이벤트 요약 (id, title, 시간). " +
+  "예: '내일 2시 팀 미팅 취소해줘', '이 이벤트 삭제해줘'";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -81,9 +104,31 @@ export function formatFreeSlotsForLLM(byDate: Record<string, FreeSlot[]>, workSt
   return `## ${header}\n${sections.join("\n")}`;
 }
 
+export function formatCalendarsForLLM(calendars: Calendar[]): string {
+  if (calendars.length === 0) {
+    return "## 캘린더\n연결된 캘린더가 없습니다.";
+  }
+  const lines = calendars.map((c, i) => {
+    const readOnly = c.readOnly ? " (읽기 전용)" : "";
+    return `${i + 1}. ${c.name} [${c.provider}]${readOnly} {id: ${c.id}}`;
+  });
+  return `## 캘린더 — ${calendars.length}건\n${lines.join("\n")}`;
+}
+
+export function formatCreatedEventForLLM(event: CalendarEvent): string {
+  return `Created: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
+}
+
+export function formatDeletedEventForLLM(event: CalendarEvent): string {
+  return `Deleted: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
+}
+
 export function registerCalendarTools(server: McpServer, components: CalendarToolsDeps): void {
   registerGetEvents(server, components);
   registerGetFreeSlots(server, components);
+  registerGetCalendars(server, components);
+  registerCreateEvent(server, components);
+  registerDeleteEvent(server, components);
 }
 
 function registerGetEvents(server: McpServer, components: CalendarToolsDeps): void {
@@ -190,6 +235,115 @@ function registerGetFreeSlots(server: McpServer, components: CalendarToolsDeps):
             {
               type: "text" as const,
               text: `빈 시간 조회 실패: ${message}. 'af auth' 명령으로 재인증 후 다시 시도하세요.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function registerGetCalendars(server: McpServer, components: CalendarToolsDeps): void {
+  server.registerTool(
+    GET_CALENDARS_TOOL_NAME,
+    {
+      description: GET_CALENDARS_DESCRIPTION,
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        const calendars = await components.taskQuery.getCalendars();
+        return {
+          content: [{ type: "text" as const, text: formatCalendarsForLLM(calendars) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `캘린더 조회 실패: ${message}. 'af auth' 명령으로 재인증 후 다시 시도하세요.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function registerCreateEvent(server: McpServer, components: CalendarToolsDeps): void {
+  server.registerTool(
+    CREATE_EVENT_TOOL_NAME,
+    {
+      description: CREATE_EVENT_DESCRIPTION,
+      inputSchema: {
+        calendar_id: z.string().min(1).describe("이벤트를 생성할 캘린더 ID (get_calendars로 확인, read-only 불가)"),
+        title: z.string().min(1).describe("이벤트 제목"),
+        start_datetime: z.string().min(1).describe("시작 일시 (ISO 8601, 예: 2026-04-20T14:00:00+09:00)"),
+        end_datetime: z.string().min(1).describe("종료 일시 (ISO 8601)"),
+        description: z.string().optional().describe("이벤트 설명"),
+        location: z.string().optional().describe("장소"),
+        all_day: z.boolean().optional().describe("종일 이벤트 여부 (기본값: false)"),
+      },
+      annotations: { openWorldHint: true },
+    },
+    async (args) => {
+      try {
+        const event = await components.taskCommand.createEvent({
+          calendarId: args.calendar_id,
+          title: args.title,
+          startDatetime: args.start_datetime,
+          endDatetime: args.end_datetime,
+          description: args.description,
+          location: args.location,
+          allDay: args.all_day,
+        });
+        return {
+          content: [{ type: "text" as const, text: formatCreatedEventForLLM(event) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `이벤트 생성 실패: ${message}. calendar_id는 get_calendars로 확인하세요.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function registerDeleteEvent(server: McpServer, components: CalendarToolsDeps): void {
+  server.registerTool(
+    DELETE_EVENT_TOOL_NAME,
+    {
+      description: DELETE_EVENT_DESCRIPTION,
+      inputSchema: {
+        calendar_id: z.string().min(1).describe("이벤트가 속한 캘린더 ID (get_calendars로 확인, read-only 불가)"),
+        event_id: z.string().min(1).describe("삭제할 이벤트 ID (get_events로 확인)"),
+      },
+      annotations: { destructiveHint: true, idempotentHint: true },
+    },
+    async (args) => {
+      try {
+        const event = await components.taskCommand.deleteEvent(args.calendar_id, args.event_id);
+        return {
+          content: [{ type: "text" as const, text: formatDeletedEventForLLM(event) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `이벤트 삭제 실패: ${message}. calendar_id/event_id는 get_calendars/get_events로 확인하세요.`,
             },
           ],
           isError: true,

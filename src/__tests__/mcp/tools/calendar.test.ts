@@ -5,6 +5,7 @@ import {
   type CalendarToolsDeps,
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
+  DELETE_EVENT_TOOL_NAME,
   formatEventsForLLM,
   GET_EVENTS_TOOL_NAME,
   GET_FREE_SLOTS_TOOL_NAME,
@@ -17,6 +18,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 function buildDeps(getEvents: (date: string) => Promise<CalendarEvent[]>): CalendarToolsDeps {
   return { taskQuery: { getEvents } };
+}
+
+function buildDeleteDeps(
+  deleteEvent: (calendarId: string, eventId: string) => Promise<CalendarEvent>,
+): CalendarToolsDeps {
+  return {
+    taskQuery: { getEvents: async () => [] },
+    taskCommand: { createEvent: async () => buildEvent(), deleteEvent },
+  };
 }
 
 function buildEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
@@ -337,6 +347,79 @@ describe("mcp/tools/calendar", () => {
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("token refresh failed");
       expect(textOf(result)).toContain("af auth");
+    });
+  });
+
+  describe("delete_event tool registration", () => {
+    test("registers a destructive/idempotent tool with examples in description", async () => {
+      // Given: a server with calendar tools registered
+      registerCalendarTools(
+        server,
+        buildDeleteDeps(async () => buildEvent()),
+      );
+      client = await connectClient(server);
+
+      // When: the client lists tools
+      const { tools } = await client.listTools();
+      const deleteEvent = tools.find((t) => t.name === DELETE_EVENT_TOOL_NAME);
+
+      // Then: the tool is present, destructive/idempotent, description includes usage examples
+      expect(deleteEvent).toBeDefined();
+      expect(deleteEvent?.annotations?.destructiveHint).toBe(true);
+      expect(deleteEvent?.annotations?.idempotentHint).toBe(true);
+      expect(deleteEvent?.description ?? "").toContain("예:");
+    });
+  });
+
+  describe("delete_event happy path", () => {
+    test("calls taskCommand.deleteEvent with calendar_id/event_id and formats the result", async () => {
+      // Given: a stub that records its args and returns the deleted event
+      const calls: Array<[string, string]> = [];
+      registerCalendarTools(
+        server,
+        buildDeleteDeps(async (calendarId, eventId) => {
+          calls.push([calendarId, eventId]);
+          return buildEvent({ id: eventId, title: "Cancelled sync" });
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling delete_event with a calendar_id/event_id pair
+      const result = await client.callTool({
+        name: DELETE_EVENT_TOOL_NAME,
+        arguments: { calendar_id: "cal-primary", event_id: "ev-1" },
+      });
+
+      // Then: the stub receives both ids, and the response echoes the deleted event
+      expect(calls).toEqual([["cal-primary", "ev-1"]]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Deleted");
+      expect(textOf(result)).toContain("Cancelled sync");
+      expect(textOf(result)).toContain("ev-1");
+    });
+  });
+
+  describe("delete_event error handling", () => {
+    test("underlying service throws → isError=true with recovery hint", async () => {
+      // Given: a stub that throws (e.g. unknown calendar/event id)
+      registerCalendarTools(
+        server,
+        buildDeleteDeps(async () => {
+          throw new Error("event ev-404 not found");
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: DELETE_EVENT_TOOL_NAME,
+        arguments: { calendar_id: "cal-primary", event_id: "ev-404" },
+      });
+
+      // Then: isError flag set, error message + recovery guidance
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("event ev-404 not found");
+      expect(textOf(result)).toContain("get_calendars");
     });
   });
 

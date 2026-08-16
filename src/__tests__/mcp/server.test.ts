@@ -47,7 +47,7 @@ describe("MCP server core", () => {
       expect(MCP_SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+/);
     });
 
-    test("registers all task/schedule/calendar tools and does not expose the old ping stub", async () => {
+    test("registers all task/schedule/calendar/meeting tools and does not expose the old ping stub", async () => {
       // Given: a fully composed server connected via in-memory transport
       const { server } = build();
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -71,10 +71,42 @@ describe("MCP server core", () => {
           "schedule_task",
           "unschedule_task",
           "get_free_slots",
+          "get_calendars",
+          "create_event",
+          "get_recordings",
+          "get_recording",
+          "get_meeting_briefs",
+          "get_meeting_brief",
+          "create_task_from_action_item",
         ]) {
           expect(names).toContain(expected);
         }
         expect(names).not.toContain("ping");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+
+    test("create_event tool requires calendar_id/title/start_datetime/end_datetime end-to-end", async () => {
+      // Given: fully composed server
+      const { server } = build();
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "0.0.0" });
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+      try {
+        // When: listing tools and inspecting create_event's inputSchema
+        const { tools } = await client.listTools();
+        const detail = tools.find((t) => t.name === "create_event");
+
+        // Then: the four required fields are present
+        expect(detail).toBeDefined();
+        const schema = detail?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+        expect(schema?.properties).toHaveProperty("calendar_id");
+        expect(schema?.required).toEqual(
+          expect.arrayContaining(["calendar_id", "title", "start_datetime", "end_datetime"]),
+        );
       } finally {
         await client.close();
         await server.close();

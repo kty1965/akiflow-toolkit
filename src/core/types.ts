@@ -97,7 +97,62 @@ export interface CalendarEvent {
 export interface Calendar {
   id: string;
   name: string;
-  provider: string;
+  provider: string; // connector_id, e.g. "google"
+  timezone: string | null;
+  color: string | null;
+  originId: string | null;
+  akiflowAccountId: string | null;
+  originAccountId: string | null;
+  readOnly: boolean;
+}
+
+// Create event input (service + port level — adapter resolves calendar
+// identity and constructs the full Akiflow v3 write envelope internally)
+export interface CreateEventInput {
+  calendarId: string;
+  title: string;
+  startDatetime: string; // ISO 8601
+  endDatetime: string; // ISO 8601
+  description?: string | null;
+  location?: string | null;
+  allDay?: boolean;
+}
+
+// Meeting Assistant (Akiflow paid add-on) — aki.akiflow.com/api/v1
+export interface ActionItem {
+  id: string;
+  title: string;
+  dueDate: string | null;
+}
+
+export interface TranscriptEntry {
+  speakerName: string;
+  paragraph: string;
+  startTimeSec: number;
+}
+
+export interface Recording {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  summary: string | null;
+  actionItems: ActionItem[];
+  transcript: TranscriptEntry[];
+}
+
+export interface MeetingBrief {
+  id: string;
+  originEventId: string | null;
+  createdAt: string | null;
+  data: Record<string, unknown> | null;
+}
+
+// Cursor-paginated response wrapper for aki.akiflow.com endpoints
+// (distinct from ApiResponse<T>'s sync_token pagination used by api.akiflow.com)
+export interface AkiPageResponse<T> {
+  data: T[];
+  nextCursor: string | null;
 }
 
 // Time Slot

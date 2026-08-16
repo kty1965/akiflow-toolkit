@@ -5,10 +5,10 @@
 // ---------------------------------------------------------------------------
 
 import { ApiSchemaError } from "../errors/index.ts";
-import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
+import type { AkiflowHttpPort, CreatedTaskFromActionItem } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type { CreateTaskPayload, Task, UpdateTaskPayload } from "../types.ts";
+import type { CalendarEvent, CreateEventInput, CreateTaskPayload, Task, UpdateTaskPayload } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
 import type { AuthService } from "./auth-service.ts";
@@ -167,6 +167,38 @@ export class TaskCommandService {
       deleted_at: null,
     };
     return this.patchSingle(payload, "restoreTask");
+  }
+
+  async createEvent(input: CreateEventInput): Promise<CalendarEvent> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.createEvent(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const event = res.data[0];
+    if (!event) {
+      throw new ApiSchemaError("createEvent: empty response");
+    }
+    return event;
+  }
+
+  async deleteEvent(calendarId: string, eventId: string): Promise<CalendarEvent> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.deleteEvent(token, calendarId, eventId)),
+      WRITE_RETRY_POLICY,
+    );
+    const event = res.data[0];
+    if (!event) {
+      throw new ApiSchemaError("deleteEvent: empty response");
+    }
+    return event;
+  }
+
+  async createTaskFromActionItem(recordingId: string, actionItemId: string): Promise<CreatedTaskFromActionItem> {
+    return withRetry(
+      () =>
+        this.deps.auth.withAuth((token) => this.deps.http.createTaskFromActionItem(token, recordingId, actionItemId)),
+      WRITE_RETRY_POLICY,
+    );
   }
 
   private async patchSingle(payload: CreateTaskPayload | UpdateTaskPayload, label: string): Promise<Task> {
