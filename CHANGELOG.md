@@ -1,3 +1,17 @@
+# [1.5.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.4.1...v1.5.0) (2026-08-16)
+
+
+### Bug Fixes
+
+* **mcp:** map raw label/tag `title` field to domain `name` ([8bd6724](https://github.com/kty1965/akiflow-toolkit/commit/8bd6724a77f2f8e346c3c7228a7b58e2b248caa5))
+* **tasks:** stop sending an invalid status on uncomplete_task ([02ec389](https://github.com/kty1965/akiflow-toolkit/commit/02ec3890ab2d1ad7d80cf49095d5344583f37170))
+
+
+### Features
+
+* **mcp:** add calendar event creation and meeting assistant tools ([04b442c](https://github.com/kty1965/akiflow-toolkit/commit/04b442caf6983ee1d426629addb8cfb14ce221bc))
+* **mcp:** add delete_event tool for canceling calendar events ([5dd3749](https://github.com/kty1965/akiflow-toolkit/commit/5dd374920f237bc1035a2e5bb9099f732441b603))
+
 ## [1.4.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.4.0...v1.4.1) (2026-08-15)
 
 
