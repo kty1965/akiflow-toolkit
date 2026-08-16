@@ -8,7 +8,14 @@ import { ApiSchemaError } from "../errors/index.ts";
 import type { AkiflowHttpPort, CreatedTaskFromActionItem } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type { CalendarEvent, CreateEventInput, CreateTaskPayload, Task, UpdateTaskPayload } from "../types.ts";
+import type {
+  CalendarEvent,
+  CreateEventInput,
+  CreateTaskPayload,
+  Task,
+  UpdateEventInput,
+  UpdateTaskPayload,
+} from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
 import type { AuthService } from "./auth-service.ts";
@@ -41,6 +48,7 @@ export interface UpdateTaskInput {
   priority?: number | null;
   parentId?: string | null;
   position?: number | null;
+  tags?: string[];
 }
 
 export interface TaskCommandServiceDeps {
@@ -89,6 +97,7 @@ export class TaskCommandService {
     if (patch.priority !== undefined) payload.priority = patch.priority;
     if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
     if (patch.position !== undefined) payload.position = patch.position;
+    if (patch.tags !== undefined) payload.tags_ids = patch.tags;
 
     return this.patchSingle(payload, "updateTask");
   }
@@ -176,6 +185,18 @@ export class TaskCommandService {
     const event = res.data[0];
     if (!event) {
       throw new ApiSchemaError("createEvent: empty response");
+    }
+    return event;
+  }
+
+  async updateEvent(input: UpdateEventInput): Promise<CalendarEvent> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.updateEvent(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const event = res.data[0];
+    if (!event) {
+      throw new ApiSchemaError("updateEvent: empty response");
     }
     return event;
   }

@@ -69,6 +69,7 @@ export interface UpdateTaskPayload {
   parent_id?: string | null;
   position?: number | null;
   shared?: boolean;
+  tags_ids?: string[];
 }
 
 // Label
@@ -116,6 +117,19 @@ export interface CreateEventInput {
   description?: string | null;
   location?: string | null;
   allDay?: boolean;
+}
+
+// Update event input — partial: only fields present are changed server-side
+// (live-probed: POST /v3/events with just the identity envelope + changed
+// fields preserves everything else, unlike createEvent's full envelope)
+export interface UpdateEventInput {
+  calendarId: string;
+  eventId: string;
+  title?: string;
+  startDatetime?: string; // ISO 8601
+  endDatetime?: string; // ISO 8601
+  description?: string | null;
+  location?: string | null;
 }
 
 // Meeting Assistant (Akiflow paid add-on) — aki.akiflow.com/api/v1

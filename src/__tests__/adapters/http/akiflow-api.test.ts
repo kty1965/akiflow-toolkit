@@ -160,6 +160,45 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       expect(capturedUrl).toContain("limit=2500");
       expect(capturedUrl).toContain("sync_token=tok1");
     });
+
+    test("maps raw `tags_ids` field to domain `tags` (live-probed: Akiflow has no `tags` field on tasks)", async () => {
+      // Given: a raw /v5/tasks response shaped like the real API (tags_ids, no tags)
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "t-1", title: "Sample", tags_ids: ["tag-a", "tag-b"] }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: tags is populated from raw tags_ids
+      expect(res.data[0]?.tags).toEqual(["tag-a", "tag-b"]);
+    });
+
+    test("maps missing `tags_ids` to an empty array, not undefined", async () => {
+      // Given: a raw response with no tags_ids at all
+      mockFetch(
+        async () =>
+          new Response(JSON.stringify({ success: true, message: null, data: [{ id: "t-1", title: "Sample" }] }), {
+            status: 200,
+          }),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: tags defaults to [] so Array.isArray checks downstream stay safe
+      expect(res.data[0]?.tags).toEqual([]);
+    });
   });
 
   describe("getLabels", () => {

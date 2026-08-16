@@ -20,6 +20,7 @@ import type {
   Tag,
   Task,
   TimeSlot,
+  UpdateEventInput,
   UpdateTaskPayload,
 } from "@core/types.ts";
 import { asDataArray, mapCalendar, mapCalendarEvent, mapMeetingBrief, mapRecording } from "./akiflow-mappers.ts";
@@ -89,20 +90,27 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     return parsed as T;
   }
 
+  /**
+   * Akiflow's raw /v5/tasks response has no `tags` field — the tag
+   * association is `tags_ids` (live-probed and confirmed: setting
+   * `tags_ids` via patchTasks round-trips correctly, but reading it back
+   * needs this mapping, since the domain `Task.tags` field name doesn't
+   * match the wire field).
+   */
   async getTasks(token: string, params: ListTasksParams = {}): Promise<ApiResponse<Task[]>> {
     const qs = new URLSearchParams();
     if (params.limit !== undefined) qs.set("limit", String(params.limit));
     if (params.sync_token) qs.set("sync_token", params.sync_token);
     const path = qs.toString() ? `/v5/tasks?${qs.toString()}` : "/v5/tasks";
-    const res = await this.request<ApiResponse<Task[]>>("GET", path, token);
+    const res = await this.request<ApiResponse<unknown[]>>("GET", path, token);
     assertApiResponseArray(res, "getTasks");
-    return res;
+    return { ...res, data: res.data.map(mapTaskTags) };
   }
 
   async patchTasks(token: string, tasks: Array<CreateTaskPayload | UpdateTaskPayload>): Promise<ApiResponse<Task[]>> {
-    const res = await this.request<ApiResponse<Task[]>>("PATCH", "/v5/tasks", token, tasks);
+    const res = await this.request<ApiResponse<unknown[]>>("PATCH", "/v5/tasks", token, tasks);
     assertApiResponseArray(res, "patchTasks");
-    return res;
+    return { ...res, data: res.data.map(mapTaskTags) };
   }
 
   /**
@@ -221,6 +229,48 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
   }
 
   /**
+   * Partially update a calendar event. Same POST /v3/events write endpoint
+   * as createEvent, but live-probed as a true partial update: only the
+   * calendar identity envelope (connector/account/calendar ids) plus
+   * creator_id/organizer_id are required, and any field omitted (e.g.
+   * start_time/end_time when only renaming) is left unchanged server-side —
+   * unlike createEvent, which must supply the full event shape.
+   */
+  async updateEvent(token: string, input: UpdateEventInput): Promise<ApiResponse<CalendarEvent[]>> {
+    const calendars = await this.getCalendars(token);
+    const calendar = calendars.data.find((c) => c.id === input.calendarId);
+    if (!calendar) {
+      throw new ApiSchemaError(`updateEvent: calendar ${input.calendarId} not found — call get_calendars first`);
+    }
+    if (calendar.readOnly) {
+      throw new ApiSchemaError(`updateEvent: calendar "${calendar.name}" is read-only`);
+    }
+
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+
+    const rawEvent: Record<string, unknown> = {
+      id: input.eventId,
+      connector_id: calendar.provider,
+      origin_account_id: calendar.originAccountId,
+      akiflow_account_id: calendar.akiflowAccountId,
+      calendar_id: calendar.id,
+      origin_calendar_id: calendar.originId,
+      creator_id: calendar.originId,
+      organizer_id: calendar.originId,
+      global_updated_at: new Date().toISOString(),
+    };
+    if (input.title !== undefined) rawEvent.title = input.title;
+    if (input.startDatetime !== undefined) rawEvent.start_time = toUtc(input.startDatetime);
+    if (input.endDatetime !== undefined) rawEvent.end_time = toUtc(input.endDatetime);
+    if (input.description !== undefined) rawEvent.description = input.description;
+    if (input.location !== undefined) rawEvent.location = input.location;
+
+    const raw = await this.request<unknown>("POST", "/v3/events", token, [rawEvent]);
+    const data = asDataArray(raw).map(mapCalendarEvent);
+    return { success: true, message: null, data };
+  }
+
+  /**
    * Soft-delete a calendar event. Same POST /v3/events write endpoint as
    * createEvent (confirmed live: the server rejects a minimal
    * `{id, deleted_at}` payload with "connector id/origin account id/akiflow
@@ -308,6 +358,11 @@ function assertApiResponseArray(value: unknown, label: string): void {
   ) {
     throw new ApiSchemaError(`${label}: expected ApiResponse with data array`);
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapTaskTags(raw: any): Task {
+  return { ...raw, tags: raw?.tags_ids ?? [] } as Task;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray

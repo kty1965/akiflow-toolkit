@@ -16,6 +16,7 @@ import type {
   Tag,
   Task,
   TimeSlot,
+  UpdateEventInput,
   UpdateTaskPayload,
 } from "../types.ts";
 
@@ -38,6 +39,7 @@ export interface AkiflowHttpPort {
   getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>>;
   getCalendars(token: string): Promise<ApiResponse<Calendar[]>>;
   createEvent(token: string, input: CreateEventInput): Promise<ApiResponse<CalendarEvent[]>>;
+  updateEvent(token: string, input: UpdateEventInput): Promise<ApiResponse<CalendarEvent[]>>;
   deleteEvent(token: string, calendarId: string, eventId: string): Promise<ApiResponse<CalendarEvent[]>>;
   getRecordings(token: string, cursor?: string): Promise<AkiPageResponse<Recording>>;
   getRecording(token: string, id: string): Promise<Recording>;

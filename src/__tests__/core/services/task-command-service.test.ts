@@ -224,6 +224,19 @@ describe("TaskCommandService", () => {
       expect(payload.listId).toBe("proj-1");
     });
 
+    test("maps tags onto tags_ids on the payload (live-probed: real field name)", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update tags
+      await service.updateTask("id-1", { tags: ["tag-a", "tag-b"] });
+
+      // Then: payload.tags_ids carries the full replacement array
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.tags_ids).toEqual(["tag-a", "tag-b"]);
+    });
+
     test("clears duration and projectId when passed null", async () => {
       // Given: a port that echoes patch data
       const { port, calls } = createHttp();

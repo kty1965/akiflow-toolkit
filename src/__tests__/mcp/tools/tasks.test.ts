@@ -674,6 +674,58 @@ describe("mcp/tools/tasks", () => {
       expect(calls).toEqual([{ id: "abc", patch: { title: "New title" } }]);
     });
 
+    test("tags replaces the full tag set", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: setting tags to a new set
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", tags: ["tag-urgent", "tag-work"] },
+      });
+
+      // Then: patch.tags carries the full replacement array
+      expect(calls[0]?.patch).toEqual({ tags: ["tag-urgent", "tag-work"] });
+    });
+
+    test("tags=[] clears all tags", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing tags with an empty array
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", tags: [] },
+      });
+
+      // Then: patch.tags is an empty array, not omitted
+      expect(calls[0]?.patch).toEqual({ tags: [] });
+    });
+
     test("date=null clears the date", async () => {
       // Given: updateTask captures the patch
       const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
