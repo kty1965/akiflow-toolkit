@@ -94,16 +94,22 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     return res;
   }
 
+  /**
+   * Akiflow's raw /v5/labels and /v5/tags responses use `title`, not `name`
+   * (same convention as tasks) — live-probed and confirmed. Mapped here so
+   * the domain `Label`/`Tag` types (which use `name`, matching how callers
+   * already read them) don't silently render "undefined".
+   */
   async getLabels(token: string): Promise<ApiResponse<Label[]>> {
-    const res = await this.request<ApiResponse<Label[]>>("GET", "/v5/labels", token);
+    const res = await this.request<ApiResponse<unknown[]>>("GET", "/v5/labels", token);
     assertApiResponseArray(res, "getLabels");
-    return res;
+    return { ...res, data: res.data.map(mapLabel) };
   }
 
   async getTags(token: string): Promise<ApiResponse<Tag[]>> {
-    const res = await this.request<ApiResponse<Tag[]>>("GET", "/v5/tags", token);
+    const res = await this.request<ApiResponse<unknown[]>>("GET", "/v5/tags", token);
     assertApiResponseArray(res, "getTags");
-    return res;
+    return { ...res, data: res.data.map(mapTag) };
   }
 
   async getTimeSlots(token: string, date: string): Promise<ApiResponse<TimeSlot[]>> {
@@ -142,4 +148,21 @@ function assertApiResponseArray(value: unknown, label: string): void {
   ) {
     throw new ApiSchemaError(`${label}: expected ApiResponse with data array`);
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapLabel(raw: any): Label {
+  return {
+    id: String(raw?.id ?? ""),
+    name: raw?.title ?? raw?.name ?? "(unnamed)",
+    color: raw?.color ?? null,
+  };
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapTag(raw: any): Tag {
+  return {
+    id: String(raw?.id ?? ""),
+    name: raw?.title ?? raw?.name ?? "(unnamed)",
+  };
 }

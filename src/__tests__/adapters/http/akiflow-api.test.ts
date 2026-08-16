@@ -162,6 +162,54 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
     });
   });
 
+  describe("getLabels", () => {
+    test("maps raw `title` field to domain `name` (live-probed: Akiflow returns title, not name)", async () => {
+      // Given: a raw /v5/labels response shaped like the real API (title, no name)
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "lbl-1", title: "Sync", color: "palette-red", user_id: 1 }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getLabels is called
+      const res = await adapter.getLabels("t");
+
+      // Then: the mapped Label has `name` populated from raw `title`
+      expect(res.data).toEqual([{ id: "lbl-1", name: "Sync", color: "palette-red" }]);
+    });
+  });
+
+  describe("getTags", () => {
+    test("maps raw `title` field to domain `name`", async () => {
+      // Given: a raw /v5/tags response shaped like the real API (title, no name)
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "tag-1", title: "GovSaaS", user_id: 1 }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTags is called
+      const res = await adapter.getTags("t");
+
+      // Then: the mapped Tag has `name` populated from raw `title`
+      expect(res.data).toEqual([{ id: "tag-1", name: "GovSaaS" }]);
+    });
+  });
+
   describe("patchTasks", () => {
     test("sends array body with method PATCH", async () => {
       // Given: a mock that captures method and body
