@@ -229,6 +229,7 @@ const CreateTaskInputShape = {
     .regex(DATE_RE, "deadline must be YYYY-MM-DD")
     .optional()
     .describe("Due date (YYYY-MM-DD) — distinct from `date` (when it's scheduled to be worked on)"),
+  parent: z.string().optional().describe("Parent task ID — creates this task as a subtask in one call"),
 } as const;
 
 function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -243,7 +244,8 @@ function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
         "- 'Add buy groceries' → { title: 'buy groceries' }\n" +
         "- 'Schedule standup 2026-04-17 09:00 for 30 min' → { title: 'standup', date: '2026-04-17', time: '09:00', duration: 30 }\n" +
         "- '내일 오후 2시 PR 리뷰 잡아줘' → { title: 'PR 리뷰', date: '2026-04-18', time: '14:00' }\n" +
-        "- 'Add report due 2026-05-01' → { title: 'report', deadline: '2026-05-01' }",
+        "- 'Add report due 2026-05-01' → { title: 'report', deadline: '2026-05-01' }\n" +
+        "- 'Add a subtask under X for design review' → { title: 'design review', parent: '<uuid-of-X>' }",
       inputSchema: CreateTaskInputShape,
       annotations: {
         title: "Create task",
@@ -262,12 +264,14 @@ function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
           duration?: number;
           projectId?: string;
           deadline?: string;
+          parentId?: string;
         } = { title: args.title };
         if (args.date) input.date = args.date;
         if (args.date && args.time) input.datetime = `${args.date}T${args.time}:00`;
         if (args.duration !== undefined) input.duration = args.duration * 60_000;
         if (args.project) input.projectId = args.project;
         if (args.deadline) input.deadline = args.deadline;
+        if (args.parent) input.parentId = args.parent;
 
         const task = await deps.taskCommand.createTask(input);
         return textResult(formatSingleTask("Created", task));

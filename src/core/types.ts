@@ -49,6 +49,7 @@ export interface CreateTaskPayload {
   duration?: number;
   listId?: string;
   due_date?: string;
+  parent_id?: string;
   global_created_at: string;
   global_updated_at: string;
 }

@@ -672,6 +672,32 @@ describe("mcp/tools/tasks", () => {
       expect(captured).toMatchObject({ title: "Report", deadline: "2026-05-01" });
       expect(captured).not.toHaveProperty("date");
     });
+
+    test("passes parent through, creating a subtask in one call", async () => {
+      // Given: createTask captures its input
+      let captured: CreateTaskInput | null = null;
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            createTask: async (input) => {
+              captured = input;
+              return buildTask({ title: input.title });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling with a parent id
+      await client.callTool({
+        name: "create_task",
+        arguments: { title: "Design review", parent: "parent-uuid" },
+      });
+
+      // Then: service receives parentId
+      expect(captured).toMatchObject({ title: "Design review", parentId: "parent-uuid" });
+    });
   });
 
   describe("update_task", () => {
