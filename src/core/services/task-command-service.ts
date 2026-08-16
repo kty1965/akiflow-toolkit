@@ -181,6 +181,18 @@ export class TaskCommandService {
     return event;
   }
 
+  async deleteEvent(calendarId: string, eventId: string): Promise<CalendarEvent> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.deleteEvent(token, calendarId, eventId)),
+      WRITE_RETRY_POLICY,
+    );
+    const event = res.data[0];
+    if (!event) {
+      throw new ApiSchemaError("deleteEvent: empty response");
+    }
+    return event;
+  }
+
   async createTaskFromActionItem(recordingId: string, actionItemId: string): Promise<CreatedTaskFromActionItem> {
     return withRetry(
       () =>

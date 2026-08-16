@@ -12,13 +12,14 @@ import { z } from "zod";
 
 export interface CalendarToolsDeps {
   taskQuery: Pick<TaskQueryService, "getEvents" | "getCalendars">;
-  taskCommand: Pick<TaskCommandService, "createEvent">;
+  taskCommand: Pick<TaskCommandService, "createEvent" | "deleteEvent">;
 }
 
 export const GET_EVENTS_TOOL_NAME = "get_events";
 export const GET_FREE_SLOTS_TOOL_NAME = "get_free_slots";
 export const GET_CALENDARS_TOOL_NAME = "get_calendars";
 export const CREATE_EVENT_TOOL_NAME = "create_event";
+export const DELETE_EVENT_TOOL_NAME = "delete_event";
 
 export const DEFAULT_WORK_START = "09:00";
 export const DEFAULT_WORK_END = "18:00";
@@ -48,6 +49,12 @@ export const CREATE_EVENT_DESCRIPTION =
   "calendar_id는 get_calendars로 미리 확인해야 하며, read-only 캘린더는 지정할 수 없습니다. " +
   "결과는 생성된 이벤트 요약 (id, title, 시간). " +
   "예: '내일 오후 2시에 팀 미팅 잡아줘', '금요일 종일 휴가 일정 추가해줘'";
+
+export const DELETE_EVENT_DESCRIPTION =
+  "Akiflow 캘린더 이벤트를 삭제(취소)합니다. 연결된 캘린더(Google 등)에도 동기화됩니다. " +
+  "calendar_id와 event_id는 get_events/get_calendars로 미리 확인해야 하며, read-only 캘린더의 이벤트는 삭제할 수 없습니다. " +
+  "결과는 삭제된 이벤트 요약 (id, title, 시간). " +
+  "예: '내일 2시 팀 미팅 취소해줘', '이 이벤트 삭제해줘'";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -112,11 +119,16 @@ export function formatCreatedEventForLLM(event: CalendarEvent): string {
   return `Created: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
 }
 
+export function formatDeletedEventForLLM(event: CalendarEvent): string {
+  return `Deleted: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
+}
+
 export function registerCalendarTools(server: McpServer, components: CalendarToolsDeps): void {
   registerGetEvents(server, components);
   registerGetFreeSlots(server, components);
   registerGetCalendars(server, components);
   registerCreateEvent(server, components);
+  registerDeleteEvent(server, components);
 }
 
 function registerGetEvents(server: McpServer, components: CalendarToolsDeps): void {
@@ -299,6 +311,39 @@ function registerCreateEvent(server: McpServer, components: CalendarToolsDeps): 
             {
               type: "text" as const,
               text: `이벤트 생성 실패: ${message}. calendar_id는 get_calendars로 확인하세요.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function registerDeleteEvent(server: McpServer, components: CalendarToolsDeps): void {
+  server.registerTool(
+    DELETE_EVENT_TOOL_NAME,
+    {
+      description: DELETE_EVENT_DESCRIPTION,
+      inputSchema: {
+        calendar_id: z.string().min(1).describe("이벤트가 속한 캘린더 ID (get_calendars로 확인, read-only 불가)"),
+        event_id: z.string().min(1).describe("삭제할 이벤트 ID (get_events로 확인)"),
+      },
+      annotations: { destructiveHint: true, idempotentHint: true },
+    },
+    async (args) => {
+      try {
+        const event = await components.taskCommand.deleteEvent(args.calendar_id, args.event_id);
+        return {
+          content: [{ type: "text" as const, text: formatDeletedEventForLLM(event) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `이벤트 삭제 실패: ${message}. calendar_id/event_id는 get_calendars/get_events로 확인하세요.`,
             },
           ],
           isError: true,

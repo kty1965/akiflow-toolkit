@@ -214,6 +214,35 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     return { success: true, message: null, data };
   }
 
+  /**
+   * Soft-delete a calendar event. Same POST /v3/events write endpoint as
+   * createEvent (confirmed live: the server rejects a minimal
+   * `{id, deleted_at}` payload with "connector id/origin account id/akiflow
+   * account id/calendar id/origin calendar id required" — it needs the same
+   * calendar identity envelope, just without title/start/end).
+   */
+  async deleteEvent(token: string, calendarId: string, eventId: string): Promise<ApiResponse<CalendarEvent[]>> {
+    const calendars = await this.getCalendars(token);
+    const calendar = calendars.data.find((c) => c.id === calendarId);
+    if (!calendar) {
+      throw new ApiSchemaError(`deleteEvent: calendar ${calendarId} not found — call get_calendars first`);
+    }
+
+    const rawEvent = {
+      id: eventId,
+      deleted_at: new Date().toISOString(),
+      connector_id: calendar.provider,
+      origin_account_id: calendar.originAccountId,
+      akiflow_account_id: calendar.akiflowAccountId,
+      calendar_id: calendar.id,
+      origin_calendar_id: calendar.originId,
+    };
+
+    const raw = await this.request<unknown>("POST", "/v3/events", token, [rawEvent]);
+    const data = asDataArray(raw).map(mapCalendarEvent);
+    return { success: true, message: null, data };
+  }
+
   async getRecordings(token: string, cursor?: string): Promise<AkiPageResponse<Recording>> {
     const params = new URLSearchParams({ per_page: "100" });
     if (cursor) params.set("cursor", cursor);
