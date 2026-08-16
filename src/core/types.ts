@@ -169,13 +169,40 @@ export interface AkiPageResponse<T> {
   nextCursor: string | null;
 }
 
-// Time Slot
+// Time Slot — Akiflow's routine/block scheduling entity, distinct from both
+// Task and CalendarEvent. Live-probed GET /v5/time_slots: no `date`/`task_id`
+// field on the entity itself (a Task can reference one via its own
+// `time_slot_id`, but that's a one-way pointer, not present here).
 export interface TimeSlot {
   id: string;
-  date: string;
-  start: string;
-  end: string;
-  taskId: string;
+  calendarId: string | null;
+  title: string | null;
+  description: string | null;
+  start: string; // ISO8601
+  end: string; // ISO8601
+  status: string | null;
+  recurrence: string | null;
+}
+
+// Create time slot input — writes go through the same simple PATCH-upsert
+// pattern as tasks (live-probed: PATCH /v5/time_slots, not the complex v3
+// calendar-event envelope), so no calendar-identity resolution needed.
+export interface CreateTimeSlotInput {
+  calendarId: string;
+  title: string;
+  startDatetime: string; // ISO 8601
+  endDatetime: string; // ISO 8601
+  description?: string | null;
+}
+
+// Update time slot input — true partial update (live-probed: omitted
+// fields are left unchanged server-side, same as tasks).
+export interface UpdateTimeSlotInput {
+  timeSlotId: string;
+  title?: string;
+  startDatetime?: string; // ISO 8601
+  endDatetime?: string; // ISO 8601
+  description?: string | null;
 }
 
 // Credentials

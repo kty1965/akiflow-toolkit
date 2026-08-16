@@ -12,9 +12,12 @@ import type {
   CalendarEvent,
   CreateEventInput,
   CreateTaskPayload,
+  CreateTimeSlotInput,
   Task,
+  TimeSlot,
   UpdateEventInput,
   UpdateTaskPayload,
+  UpdateTimeSlotInput,
 } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
@@ -219,6 +222,42 @@ export class TaskCommandService {
         this.deps.auth.withAuth((token) => this.deps.http.createTaskFromActionItem(token, recordingId, actionItemId)),
       WRITE_RETRY_POLICY,
     );
+  }
+
+  async createTimeSlot(input: CreateTimeSlotInput): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.createTimeSlot(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("createTimeSlot: empty response");
+    }
+    return slot;
+  }
+
+  async updateTimeSlot(input: UpdateTimeSlotInput): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.updateTimeSlot(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("updateTimeSlot: empty response");
+    }
+    return slot;
+  }
+
+  async deleteTimeSlot(timeSlotId: string): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.deleteTimeSlot(token, timeSlotId)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("deleteTimeSlot: empty response");
+    }
+    return slot;
   }
 
   private async patchSingle(payload: CreateTaskPayload | UpdateTaskPayload, label: string): Promise<Task> {

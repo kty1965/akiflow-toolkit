@@ -14,6 +14,7 @@ import type {
   CalendarEvent,
   CreateEventInput,
   CreateTaskPayload,
+  CreateTimeSlotInput,
   Label,
   MeetingBrief,
   Recording,
@@ -22,6 +23,7 @@ import type {
   TimeSlot,
   UpdateEventInput,
   UpdateTaskPayload,
+  UpdateTimeSlotInput,
 } from "@core/types.ts";
 import { asDataArray, mapCalendar, mapCalendarEvent, mapMeetingBrief, mapRecording } from "./akiflow-mappers.ts";
 
@@ -132,13 +134,66 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
   }
 
   async getTimeSlots(token: string, date: string): Promise<ApiResponse<TimeSlot[]>> {
-    const res = await this.request<ApiResponse<TimeSlot[]>>(
+    const res = await this.request<ApiResponse<unknown[]>>(
       "GET",
       `/v5/time_slots?date=${encodeURIComponent(date)}`,
       token,
     );
     assertApiResponseArray(res, "getTimeSlots");
-    return res;
+    return { ...res, data: res.data.map(mapTimeSlot) };
+  }
+
+  /**
+   * Time slots use the same simple PATCH-upsert pattern as tasks
+   * (live-probed: PATCH /v5/time_slots, not the complex v3 calendar-event
+   * envelope createEvent needs) — no calendar-identity resolution required.
+   */
+  async createTimeSlot(token: string, input: CreateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>> {
+    const nowIso = new Date().toISOString();
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+    const rawSlot = {
+      id: crypto.randomUUID(),
+      calendar_id: input.calendarId,
+      title: input.title,
+      description: input.description ?? null,
+      start_time: toUtc(input.startDatetime),
+      end_time: toUtc(input.endDatetime),
+      start_datetime_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      status: "confirmed",
+      global_created_at: nowIso,
+      global_updated_at: nowIso,
+    };
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
+  }
+
+  /** True partial update — live-probed: fields omitted here are left unchanged server-side. */
+  async updateTimeSlot(token: string, input: UpdateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>> {
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+    const rawSlot: Record<string, unknown> = {
+      id: input.timeSlotId,
+      global_updated_at: new Date().toISOString(),
+    };
+    if (input.title !== undefined) rawSlot.title = input.title;
+    if (input.startDatetime !== undefined) rawSlot.start_time = toUtc(input.startDatetime);
+    if (input.endDatetime !== undefined) rawSlot.end_time = toUtc(input.endDatetime);
+    if (input.description !== undefined) rawSlot.description = input.description;
+
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
+  }
+
+  async deleteTimeSlot(token: string, timeSlotId: string): Promise<ApiResponse<TimeSlot[]>> {
+    const rawSlot = {
+      id: timeSlotId,
+      deleted_at: new Date().toISOString(),
+      global_updated_at: new Date().toISOString(),
+    };
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
   }
 
   async getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>> {
@@ -358,6 +413,20 @@ function assertApiResponseArray(value: unknown, label: string): void {
   ) {
     throw new ApiSchemaError(`${label}: expected ApiResponse with data array`);
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapTimeSlot(raw: any): TimeSlot {
+  return {
+    id: String(raw?.id ?? ""),
+    calendarId: raw?.calendar_id ?? null,
+    title: raw?.title ?? null,
+    description: raw?.description ?? null,
+    start: raw?.start_time ?? "",
+    end: raw?.end_time ?? "",
+    status: raw?.status ?? null,
+    recurrence: raw?.recurrence ?? null,
+  };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
