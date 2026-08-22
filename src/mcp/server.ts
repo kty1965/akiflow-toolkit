@@ -16,6 +16,7 @@ import { registerMeetingTools } from "./tools/meetings.ts";
 import { registerOrganizeTools } from "./tools/organize.ts";
 import { registerScheduleTools } from "./tools/schedule.ts";
 import { registerTaskTools } from "./tools/tasks.ts";
+import { registerTimeSlotTools } from "./tools/timeslots.ts";
 
 export const MCP_SERVER_NAME = "akiflow";
 export const MCP_SERVER_VERSION = pkg.version;
@@ -29,6 +30,7 @@ export function buildMcpServer(components: AppComponents): McpServer {
   registerTaskTools(server, components);
   registerScheduleTools(server, components);
   registerCalendarTools(server, components);
+  registerTimeSlotTools(server, components);
   registerMeetingTools(server, components);
   registerOrganizeTools(server, components);
   registerAuthStatusTool(server, components);

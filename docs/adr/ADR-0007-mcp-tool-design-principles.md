@@ -1,8 +1,8 @@
 ---
 title: "ADR-0007: MCP Tool 설계 원칙 — Outcome-first"
 createdAt: 2026-04-15T19:00:00+09:00
-updatedAt: 2026-04-15T19:00:00+09:00
-version: "1.0.0"
+updatedAt: 2026-08-16T22:50:00+09:00
+version: "1.1.0"
 type: artifact
 status: accepted
 date: 2026-04-15
@@ -202,7 +202,34 @@ server.tool("get_tasks", description, schema, handler, {
 | `get_tags` | 태그 목록 | readOnly |
 | `auth_status` | 인증 상태 확인 | readOnly |
 
-총 12개 Tool (상한 15개 이내).
+총 12개 Tool (상한 15개 이내). *(2026-08-16 기준으로는 아래 업데이트 참조 — 실제
+28개로 이미 상한을 크게 초과함.)*
+
+## 2026-08-16 Update — Tool 인벤토리 상한 재검토
+
+PR #70(calendar/meeting tools) merge로 실제 tool 수가 **28개**가 됨 — "15개 권장"은
+물론 "20개 초과 시 분리 검토" 트리거도 이미 넘어섰다. `__suggestions__/
+20260816153713-mcp-tool-coverage-vs-official-community.md`의 Phase 1(update_event,
+Time Slot 카테고리, Tag 할당)까지 진행하면 33~34개까지 늘어날 예정.
+
+**결정: 지금 당장 bounded-context 분리(별도 MCP 서버 바이너리/프로세스로 쪼개기)는
+하지 않는다.** 이유:
+- 이 프로젝트는 개인 사용자 대상 단일 CLI/MCP 툴킷이고, `af setup`이 AI 에디터
+  설정에 서버 1개를 등록하는 구조다. 분리하면 사용자가 여러 서버를 각각 등록해야
+  해서 설정 복잡도가 실질적으로 늘어난다.
+- Tool 수 증가가 실제로 LLM의 tool-selection 정확도를 떨어뜨린다는 관측 증거가
+  아직 없다(원 ADR의 우려는 이론적 리스크였고, 검증된 바 없음).
+- 분리 방식 자체(별도 프로세스? `af setup --tools=` 같은 기능 토글? 등)가 아직
+  설계되지 않아서, 지금 서둘러 쪼개면 그 자체가 추측성 설계가 된다.
+
+**대신 다음 트리거가 오면 그때 실제로 분리를 설계·실행한다**:
+- Tool 수가 ~35개를 넘어설 때(Phase 2/3까지 다 구현하면 근접할 수 있음), 또는
+- 사용자가 실제 사용 중 AI 어시스턴트의 tool 선택 혼란(잘못된 tool 호출, 비슷한
+  tool 간 혼동 등)을 관측/보고할 때
+
+이 항목은 기존 "Revisit Triggers"의 세 번째 항목("사용자 피드백에서 Tool 조합 시
+혼란 보고 시")과 사실상 동일한 조건이라, 새 트리거를 추가하기보다 그 트리거의
+구체적 임계값(35개)만 명시한 것으로 본다.
 
 ## More Information
 

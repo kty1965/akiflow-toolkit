@@ -8,7 +8,17 @@ import { ApiSchemaError } from "../errors/index.ts";
 import type { AkiflowHttpPort, CreatedTaskFromActionItem } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type { CalendarEvent, CreateEventInput, CreateTaskPayload, Task, UpdateTaskPayload } from "../types.ts";
+import type {
+  CalendarEvent,
+  CreateEventInput,
+  CreateTaskPayload,
+  CreateTimeSlotInput,
+  Task,
+  TimeSlot,
+  UpdateEventInput,
+  UpdateTaskPayload,
+  UpdateTimeSlotInput,
+} from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
 import type { AuthService } from "./auth-service.ts";
@@ -28,6 +38,8 @@ export interface CreateTaskInput {
   datetime?: string;
   duration?: number;
   projectId?: string;
+  deadline?: string;
+  parentId?: string;
 }
 
 export interface UpdateTaskInput {
@@ -41,6 +53,8 @@ export interface UpdateTaskInput {
   priority?: number | null;
   parentId?: string | null;
   position?: number | null;
+  tags?: string[];
+  deadline?: string | null;
 }
 
 export interface TaskCommandServiceDeps {
@@ -70,6 +84,8 @@ export class TaskCommandService {
     if (input.datetime !== undefined) payload.datetime = input.datetime;
     if (input.duration !== undefined) payload.duration = input.duration;
     if (input.projectId !== undefined) payload.listId = input.projectId;
+    if (input.deadline !== undefined) payload.due_date = input.deadline;
+    if (input.parentId !== undefined) payload.parent_id = input.parentId;
 
     return this.patchSingle(payload, "createTask");
   }
@@ -89,6 +105,8 @@ export class TaskCommandService {
     if (patch.priority !== undefined) payload.priority = patch.priority;
     if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
     if (patch.position !== undefined) payload.position = patch.position;
+    if (patch.tags !== undefined) payload.tags_ids = patch.tags;
+    if (patch.deadline !== undefined) payload.due_date = patch.deadline;
 
     return this.patchSingle(payload, "updateTask");
   }
@@ -180,6 +198,18 @@ export class TaskCommandService {
     return event;
   }
 
+  async updateEvent(input: UpdateEventInput): Promise<CalendarEvent> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.updateEvent(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const event = res.data[0];
+    if (!event) {
+      throw new ApiSchemaError("updateEvent: empty response");
+    }
+    return event;
+  }
+
   async deleteEvent(calendarId: string, eventId: string): Promise<CalendarEvent> {
     const res = await withRetry(
       () => this.deps.auth.withAuth((token) => this.deps.http.deleteEvent(token, calendarId, eventId)),
@@ -198,6 +228,42 @@ export class TaskCommandService {
         this.deps.auth.withAuth((token) => this.deps.http.createTaskFromActionItem(token, recordingId, actionItemId)),
       WRITE_RETRY_POLICY,
     );
+  }
+
+  async createTimeSlot(input: CreateTimeSlotInput): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.createTimeSlot(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("createTimeSlot: empty response");
+    }
+    return slot;
+  }
+
+  async updateTimeSlot(input: UpdateTimeSlotInput): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.updateTimeSlot(token, input)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("updateTimeSlot: empty response");
+    }
+    return slot;
+  }
+
+  async deleteTimeSlot(timeSlotId: string): Promise<TimeSlot> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.deleteTimeSlot(token, timeSlotId)),
+      WRITE_RETRY_POLICY,
+    );
+    const slot = res.data[0];
+    if (!slot) {
+      throw new ApiSchemaError("deleteTimeSlot: empty response");
+    }
+    return slot;
   }
 
   private async patchSingle(payload: CreateTaskPayload | UpdateTaskPayload, label: string): Promise<Task> {

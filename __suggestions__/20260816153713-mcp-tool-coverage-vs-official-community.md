@@ -1,8 +1,8 @@
 ---
 title: "공식/커뮤니티 Akiflow MCP 대비 tool 커버리지 확대"
 createdAt: 2026-08-16T15:37:13+09:00
-updatedAt: 2026-08-16T22:20:21+09:00
-version: "1.2.0"
+updatedAt: 2026-08-16T23:23:42+09:00
+version: "1.4.0"
 type: suggestion
 tags:
   - mcp
@@ -62,20 +62,43 @@ Discord 채널에서 CDP 로그인 fix(#79/PR #80)를 라이브 검증하는 김
       Meeting Assistant 5종을 실제 인증 세션에서 1회 이상 호출 확인). **완료
       (2026-08-16)** — 전부 실제 계정으로 검증됨. 단, merge는 아직 — main 대비 오래된
       스냅샷이라 rebase 필요(§6 참조). 이슈 #81은 이 브랜치가 merge되면 자동 해결.
-- [x] DoD-2: `delete_event` MCP tool 구현·라이브 검증 완료 (2026-08-16, PR #70 브랜치에
-      커밋 `8b9e005`로 push됨: create→delete→get_events로 사라짐 확인). `update_event`는
-      아직 미구현 — 남은 절반.
-- [ ] DoD-3: Akiflow 도메인에 "someday" 개념이 실제로 존재하는지 확인 — 아직 미착수.
+- [x] DoD-2: `delete_event`/`update_event` MCP tool 둘 다 완료 (2026-08-16). `delete_event`는
+      PR #70 브랜치 커밋 `8b9e005`. `update_event`는 PR #88 커밋 `f228a02` — 라이브
+      probe로 `POST /v3/events`가 minimal envelope(calendar identity +
+      creator_id/organizer_id + 변경 필드만)로 진짜 partial update 되는 걸 확인 후 구현,
+      create→update(제목 변경 확인)→delete로 라이브 검증 완료.
+- [ ] DoD-3: Akiflow 도메인에 "someday" 개념이 실제로 존재하는지 확인 — **조사했지만
+      미해결(2026-08-16)**. raw task에 `plan_period`/`plan_unit` 필드 쌍이 있어서 유력
+      후보였는데, 쓰기 시도(`plan_period` 6자리/정수 요구, `plan_unit`은 month/week/day/
+      someday/quarter/year 전부 "invalid" 응답)로는 정확한 포맷을 못 알아냄. 현재 계정에
+      해당 필드가 채워진 실제 task도 0건이라 read로 형태를 역산할 수도 없었음. **다음
+      단계는 추측이 아니라 Akiflow 웹앱에서 실제로 task를 "someday"로 지정한 뒤
+      GET으로 그 값을 읽는 것** — 웹앱 조작이 필요해서 이번 세션에선 보류.
 - [ ] DoD-4: MCP를 통한 재인증(`login`/`refresh` 액션)을 tool로 노출할지 여부 결정 —
       아직 미착수.
-- [ ] DoD-5 (신규): Time Slot 카테고리 전체 구현 검토 — §7 참조. `getTimeSlots`
-      (`GET /v5/time_slots`)가 이미 adapter에 있는데 어떤 service/tool도 안 씀(dead
-      code). Create/Duplicate/Delete/Pin 전부 리버스엔지니어링 전.
-- [ ] DoD-6 (신규): task에 Tag 할당/해제(`update_task`에 `tags` 필드 추가) — 현재 조회만
-      가능, 할당 경로 없음.
-- [ ] DoD-7 (신규): task Deadline 필드 신설 여부 검토 — Akiflow 도메인에 `date`(스케줄)와
-      별개인 deadline 개념이 실제 있는지 raw API로 먼저 확인 필요 (someday 조사와 같은
-      패턴, DoD-3과 묶어서 진행 가능).
+- [ ] DoD-9 (신규, Phase 2 조사 중 식별): 반복 task/timeslot "이 일정만 vs 전체
+      인스턴스" 스코프 — 미착수. 실제 반복 task에 대고 실험하는 게 부담스러워서(계정에
+      진짜 반복 일정이 있고, 잘못 건드리면 사용자의 실 데이터가 깨짐) 안전하게 접근할
+      방법(예: 테스트 계정, 또는 recurrence 필드 읽기 전용 조사부터)을 먼저 정해야 함.
+- [x] DoD-5: Time Slot 카테고리 완료 (2026-08-16, PR #88 커밋 `220fbd9`). `get_time_slots`/
+      `create_time_slot`/`update_time_slot`/`delete_time_slot` 4개 tool 신규 — 라이브로
+      create→update→delete 전부 검증. `TimeSlot` 도메인 타입도 실제 API 응답 기준으로
+      재설계함(기존 `{id, date, taskId}`는 실체 없는 필드였음 — 아무 코드도 옛 shape에
+      의존하지 않아서 breaking change 아님). `Duplicate`/`Pin`은 여전히 미구현(원래
+      계획대로 v1 범위 밖).
+- [x] DoD-6: task Tag 할당/해제 완료 (2026-08-16, PR #88). `update_task`에 `tags` 필드
+      추가(전체 교체 방식), `PATCH /v5/tasks`의 `tags_ids` 필드로 라이브 확인. **부수
+      발견**: `Task.tags`가 지금까지 모든 task에서 항상 undefined였음(raw API엔
+      `tags_ids`만 있고 `tags`는 없는데 매핑이 아예 없었음) — `mapTaskTags`로 같이 고침.
+      유사 문제로 `Task.labels`가 raw API에 대응 필드 자체가 없다는 것도 발견,
+      **이슈 #87로 분리**(product 결정 필요, 이번 PR 범위 밖).
+- [x] DoD-7: task Deadline 필드 완료 (2026-08-16, PR #88 커밋 `66afdbe`). raw task의
+      `due_date` 필드(`date`와 독립적) 확인 후 `create_task`/`update_task`에 `deadline`
+      필드로 노출. 라이브로 스케줄 없이 deadline만 있는 task 생성→`get_task`에 정확히
+      표시되는 것 확인.
+- [x] DoD-10 (신규, 보너스): `create_task`에 `parent` 옵션 추가 완료 (2026-08-16, 커밋
+      `4358e27`) — 기존엔 서브태스크 생성에 2번 호출 필요했는데, 라이브 probe로
+      `parent_id`가 최초 create PATCH에 같이 들어가도 되는 걸 확인해서 원샷으로 개선.
 - [ ] DoD-8 (신규, 우선순위 낮음): Goal 연동, Link 필드 — Akiflow의 Goals는 지금 쓰는
       API 표면(`/v5/*`, `/v3/*`) 밖의 완전히 별도 영역으로 추정, 새 엔드포인트부터
       리버스엔지니어링해야 함. Link는 도메인 타입에 필드 자체가 없어 서버 스키마부터

@@ -160,6 +160,45 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       expect(capturedUrl).toContain("limit=2500");
       expect(capturedUrl).toContain("sync_token=tok1");
     });
+
+    test("maps raw `tags_ids` field to domain `tags` (live-probed: Akiflow has no `tags` field on tasks)", async () => {
+      // Given: a raw /v5/tasks response shaped like the real API (tags_ids, no tags)
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "t-1", title: "Sample", tags_ids: ["tag-a", "tag-b"] }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: tags is populated from raw tags_ids
+      expect(res.data[0]?.tags).toEqual(["tag-a", "tag-b"]);
+    });
+
+    test("maps missing `tags_ids` to an empty array, not undefined", async () => {
+      // Given: a raw response with no tags_ids at all
+      mockFetch(
+        async () =>
+          new Response(JSON.stringify({ success: true, message: null, data: [{ id: "t-1", title: "Sample" }] }), {
+            status: 200,
+          }),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: tags defaults to [] so Array.isArray checks downstream stay safe
+      expect(res.data[0]?.tags).toEqual([]);
+    });
   });
 
   describe("getLabels", () => {
@@ -207,6 +246,112 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
 
       // Then: the mapped Tag has `name` populated from raw `title`
       expect(res.data).toEqual([{ id: "tag-1", name: "GovSaaS" }]);
+    });
+  });
+
+  describe("time slots", () => {
+    function rawSlot(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "slot-1",
+        calendar_id: "cal-primary",
+        title: "Deep work",
+        description: null,
+        start_time: "2026-04-16T09:00:00.000Z",
+        end_time: "2026-04-16T10:00:00.000Z",
+        status: "confirmed",
+        recurrence: null,
+        ...overrides,
+      };
+    }
+
+    test("getTimeSlots maps start_time/end_time/calendar_id to start/end/calendarId", async () => {
+      // Given: a raw /v5/time_slots response shaped like the real API
+      mockFetch(
+        async () => new Response(JSON.stringify({ success: true, message: null, data: [rawSlot()] }), { status: 200 }),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTimeSlots is called
+      const res = await adapter.getTimeSlots("t", "2026-04-16");
+
+      // Then: the mapped TimeSlot uses the domain field names
+      expect(res.data).toEqual([
+        {
+          id: "slot-1",
+          calendarId: "cal-primary",
+          title: "Deep work",
+          description: null,
+          start: "2026-04-16T09:00:00.000Z",
+          end: "2026-04-16T10:00:00.000Z",
+          status: "confirmed",
+          recurrence: null,
+        },
+      ]);
+    });
+
+    test("createTimeSlot sends a PATCH /v5/time_slots upsert (task-style, no calendar-identity envelope)", async () => {
+      // Given: a mock that captures method/url/body and echoes a slot back
+      let captured: { method?: string; url?: string; body?: string } = {};
+      mockFetch(async (input, init) => {
+        captured = { method: init?.method, url: String(input), body: init?.body as string };
+        return new Response(JSON.stringify({ success: true, message: null, data: [rawSlot()] }), { status: 200 });
+      });
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: createTimeSlot is called
+      const res = await adapter.createTimeSlot("t", {
+        calendarId: "cal-primary",
+        title: "Deep work",
+        startDatetime: "2026-04-16T09:00:00+09:00",
+        endDatetime: "2026-04-16T10:00:00+09:00",
+      });
+
+      // Then: PATCH to /v5/time_slots (not the v3 events envelope), and the response is mapped
+      expect(captured.method).toBe("PATCH");
+      expect(captured.url).toBe("https://api.akiflow.com/v5/time_slots");
+      const sent = JSON.parse(captured.body ?? "[]")[0];
+      expect(sent.calendar_id).toBe("cal-primary");
+      expect(sent.title).toBe("Deep work");
+      expect(res.data[0]?.title).toBe("Deep work");
+    });
+
+    test("updateTimeSlot sends only id/global_updated_at plus provided fields (true partial update)", async () => {
+      // Given: a mock that captures the request body
+      let capturedBody = "";
+      mockFetch(async (_input, init) => {
+        capturedBody = init?.body as string;
+        return new Response(JSON.stringify({ success: true, message: null, data: [rawSlot({ title: "Renamed" })] }), {
+          status: 200,
+        });
+      });
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: updateTimeSlot is called with only a title change
+      await adapter.updateTimeSlot("t", { timeSlotId: "slot-1", title: "Renamed" });
+
+      // Then: the payload has no start_time/end_time/calendar_id — only what changed
+      const sent = JSON.parse(capturedBody)[0];
+      expect(sent).toEqual({ id: "slot-1", global_updated_at: expect.any(String), title: "Renamed" });
+    });
+
+    test("deleteTimeSlot sends id + deleted_at (soft delete)", async () => {
+      // Given: a mock that captures the request body
+      let capturedBody = "";
+      mockFetch(async (_input, init) => {
+        capturedBody = init?.body as string;
+        return new Response(JSON.stringify({ success: true, message: null, data: [rawSlot({ deleted_at: "now" })] }), {
+          status: 200,
+        });
+      });
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: deleteTimeSlot is called
+      await adapter.deleteTimeSlot("t", "slot-1");
+
+      // Then: the payload sets deleted_at
+      const sent = JSON.parse(capturedBody)[0];
+      expect(sent.id).toBe("slot-1");
+      expect(typeof sent.deleted_at).toBe("string");
     });
   });
 

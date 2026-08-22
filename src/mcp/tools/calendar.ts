@@ -12,13 +12,14 @@ import { z } from "zod";
 
 export interface CalendarToolsDeps {
   taskQuery: Pick<TaskQueryService, "getEvents" | "getCalendars">;
-  taskCommand: Pick<TaskCommandService, "createEvent" | "deleteEvent">;
+  taskCommand: Pick<TaskCommandService, "createEvent" | "updateEvent" | "deleteEvent">;
 }
 
 export const GET_EVENTS_TOOL_NAME = "get_events";
 export const GET_FREE_SLOTS_TOOL_NAME = "get_free_slots";
 export const GET_CALENDARS_TOOL_NAME = "get_calendars";
 export const CREATE_EVENT_TOOL_NAME = "create_event";
+export const UPDATE_EVENT_TOOL_NAME = "update_event";
 export const DELETE_EVENT_TOOL_NAME = "delete_event";
 
 export const DEFAULT_WORK_START = "09:00";
@@ -49,6 +50,13 @@ export const CREATE_EVENT_DESCRIPTION =
   "calendar_id는 get_calendars로 미리 확인해야 하며, read-only 캘린더는 지정할 수 없습니다. " +
   "결과는 생성된 이벤트 요약 (id, title, 시간). " +
   "예: '내일 오후 2시에 팀 미팅 잡아줘', '금요일 종일 휴가 일정 추가해줘'";
+
+export const UPDATE_EVENT_DESCRIPTION =
+  "Akiflow 캘린더 이벤트의 필드(제목/시간/설명/장소)를 수정합니다. 연결된 캘린더(Google 등)에도 동기화됩니다. " +
+  "부분 수정만 지원 — 지정하지 않은 필드는 그대로 유지됩니다. " +
+  "calendar_id와 event_id는 get_events/get_calendars로 미리 확인해야 하며, read-only 캘린더는 지정할 수 없습니다. " +
+  "결과는 수정된 이벤트 요약 (id, title, 시간). " +
+  "예: '내일 2시 미팅을 3시로 옮겨줘', '회의 제목을 킥오프로 바꿔줘'";
 
 export const DELETE_EVENT_DESCRIPTION =
   "Akiflow 캘린더 이벤트를 삭제(취소)합니다. 연결된 캘린더(Google 등)에도 동기화됩니다. " +
@@ -119,6 +127,10 @@ export function formatCreatedEventForLLM(event: CalendarEvent): string {
   return `Created: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
 }
 
+export function formatUpdatedEventForLLM(event: CalendarEvent): string {
+  return `Updated: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
+}
+
 export function formatDeletedEventForLLM(event: CalendarEvent): string {
   return `Deleted: ${event.title} (${event.start} → ${event.end}) {id: ${event.id}}`;
 }
@@ -128,6 +140,7 @@ export function registerCalendarTools(server: McpServer, components: CalendarToo
   registerGetFreeSlots(server, components);
   registerGetCalendars(server, components);
   registerCreateEvent(server, components);
+  registerUpdateEvent(server, components);
   registerDeleteEvent(server, components);
 }
 
@@ -311,6 +324,64 @@ function registerCreateEvent(server: McpServer, components: CalendarToolsDeps): 
             {
               type: "text" as const,
               text: `이벤트 생성 실패: ${message}. calendar_id는 get_calendars로 확인하세요.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function registerUpdateEvent(server: McpServer, components: CalendarToolsDeps): void {
+  server.registerTool(
+    UPDATE_EVENT_TOOL_NAME,
+    {
+      description: UPDATE_EVENT_DESCRIPTION,
+      inputSchema: {
+        calendar_id: z.string().min(1).describe("이벤트가 속한 캘린더 ID (get_calendars로 확인, read-only 불가)"),
+        event_id: z.string().min(1).describe("수정할 이벤트 ID (get_events로 확인)"),
+        title: z.string().min(1).optional().describe("새 제목"),
+        start_datetime: z.string().min(1).optional().describe("새 시작 일시 (ISO 8601). end_datetime과 함께 지정 권장"),
+        end_datetime: z.string().min(1).optional().describe("새 종료 일시 (ISO 8601). start_datetime과 함께 지정 권장"),
+        description: z.string().optional().describe("새 설명"),
+        location: z.string().optional().describe("새 장소"),
+      },
+      annotations: { idempotentHint: true },
+    },
+    async (args) => {
+      try {
+        if (
+          args.title === undefined &&
+          args.start_datetime === undefined &&
+          args.end_datetime === undefined &&
+          args.description === undefined &&
+          args.location === undefined
+        ) {
+          return {
+            content: [{ type: "text" as const, text: "update_event: no fields to update." }],
+            isError: true,
+          };
+        }
+        const event = await components.taskCommand.updateEvent({
+          calendarId: args.calendar_id,
+          eventId: args.event_id,
+          title: args.title,
+          startDatetime: args.start_datetime,
+          endDatetime: args.end_datetime,
+          description: args.description,
+          location: args.location,
+        });
+        return {
+          content: [{ type: "text" as const, text: formatUpdatedEventForLLM(event) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `이벤트 수정 실패: ${message}. calendar_id/event_id는 get_calendars/get_events로 확인하세요.`,
             },
           ],
           isError: true,

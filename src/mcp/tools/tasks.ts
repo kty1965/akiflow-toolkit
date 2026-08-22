@@ -224,6 +224,12 @@ const CreateTaskInputShape = {
     .describe("Scheduled time of day (HH:MM, 24h). Requires `date`"),
   duration: z.number().int().positive().optional().describe("Duration in minutes (e.g. 30 for half an hour)"),
   project: z.string().optional().describe("Project/list ID the task belongs to"),
+  deadline: z
+    .string()
+    .regex(DATE_RE, "deadline must be YYYY-MM-DD")
+    .optional()
+    .describe("Due date (YYYY-MM-DD) — distinct from `date` (when it's scheduled to be worked on)"),
+  parent: z.string().optional().describe("Parent task ID — creates this task as a subtask in one call"),
 } as const;
 
 function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -231,13 +237,15 @@ function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
     "create_task",
     {
       description:
-        "Create a new Akiflow task with optional schedule, duration, and project. Use when " +
+        "Create a new Akiflow task with optional schedule, duration, project, and deadline. Use when " +
         "the user asks to add or capture a new todo, such as 'add buy groceries' or " +
         "'create a task for 9am standup tomorrow'. Returns the created task summary.\n\n" +
         "Examples:\n" +
         "- 'Add buy groceries' → { title: 'buy groceries' }\n" +
         "- 'Schedule standup 2026-04-17 09:00 for 30 min' → { title: 'standup', date: '2026-04-17', time: '09:00', duration: 30 }\n" +
-        "- '내일 오후 2시 PR 리뷰 잡아줘' → { title: 'PR 리뷰', date: '2026-04-18', time: '14:00' }",
+        "- '내일 오후 2시 PR 리뷰 잡아줘' → { title: 'PR 리뷰', date: '2026-04-18', time: '14:00' }\n" +
+        "- 'Add report due 2026-05-01' → { title: 'report', deadline: '2026-05-01' }\n" +
+        "- 'Add a subtask under X for design review' → { title: 'design review', parent: '<uuid-of-X>' }",
       inputSchema: CreateTaskInputShape,
       annotations: {
         title: "Create task",
@@ -255,11 +263,15 @@ function registerCreateTask(server: McpServer, deps: TaskToolsDeps): void {
           datetime?: string;
           duration?: number;
           projectId?: string;
+          deadline?: string;
+          parentId?: string;
         } = { title: args.title };
         if (args.date) input.date = args.date;
         if (args.date && args.time) input.datetime = `${args.date}T${args.time}:00`;
         if (args.duration !== undefined) input.duration = args.duration * 60_000;
         if (args.project) input.projectId = args.project;
+        if (args.deadline) input.deadline = args.deadline;
+        if (args.parent) input.parentId = args.parent;
 
         const task = await deps.taskCommand.createTask(input);
         return textResult(formatSingleTask("Created", task));
@@ -302,6 +314,16 @@ const UpdateTaskInputShape = {
   project: z.string().nullable().optional().describe("New project/list ID to move the task to, or null to clear"),
   parent: z.string().nullable().optional().describe("New parent task ID (makes this a subtask), or null to clear"),
   position: z.number().int().nullable().optional().describe("New position/sort order, or null to clear"),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe("Full replacement set of tag IDs (get_tags for IDs) — not incremental. Pass [] to remove all tags."),
+  deadline: z
+    .string()
+    .regex(DATE_RE, "deadline must be YYYY-MM-DD")
+    .nullable()
+    .optional()
+    .describe("New due date (YYYY-MM-DD) — distinct from `date`, or null to clear"),
 } as const;
 
 function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -310,7 +332,7 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
     {
       description:
         "Update fields on an existing Akiflow task (title/date/time/description/priority/" +
-        "duration/project/parent/position). Use when the user asks to rename, reschedule, or otherwise edit " +
+        "duration/project/parent/position/tags/deadline). Use when the user asks to rename, reschedule, or otherwise edit " +
         "a specific task, such as 'rename task X to Y', 'move this task to tomorrow', or " +
         "'set priority on this task to 2'. Any field can be cleared by passing null. Returns " +
         "the updated task summary.\n\n" +
@@ -318,7 +340,9 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
         "- 'Rename task to Write draft' → { id: '<uuid>', title: 'Write draft' }\n" +
         "- 'Move task to 2026-04-20' → { id: '<uuid>', date: '2026-04-20' }\n" +
         "- 'Set duration to 30 minutes' → { id: '<uuid>', duration: 30 }\n" +
-        "- '이 태스크 시간 비워줘' → { id: '<uuid>', time: null }",
+        "- '이 태스크 시간 비워줘' → { id: '<uuid>', time: null }\n" +
+        "- 'Tag this urgent' → { id: '<uuid>', tags: ['<urgent-tag-id>'] }\n" +
+        "- 'Remove all tags' → { id: '<uuid>', tags: [] }",
       inputSchema: UpdateTaskInputShape,
       annotations: {
         title: "Update task",
@@ -337,6 +361,8 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
           projectId?: string | null;
           parentId?: string | null;
           position?: number | null;
+          tags?: string[];
+          deadline?: string | null;
         } = {};
         if (args.title !== undefined) patch.title = args.title;
         if (args.date !== undefined) patch.date = args.date;
@@ -360,6 +386,8 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
         if (args.project !== undefined) patch.projectId = args.project;
         if (args.parent !== undefined) patch.parentId = args.parent;
         if (args.position !== undefined) patch.position = args.position;
+        if (args.tags !== undefined) patch.tags = args.tags;
+        if (args.deadline !== undefined) patch.deadline = args.deadline;
 
         if (Object.keys(patch).length === 0) {
           return textResult("update_task: no fields to update.", true);
@@ -710,6 +738,7 @@ export function formatTaskDetail(task: Task): string {
     if (minutes > 0) lines.push(`- duration: ${minutes}m`);
   }
   if (task.listId) lines.push(`- project: ${task.listId}`);
+  if (task.due_date) lines.push(`- deadline: ${task.due_date}`);
   if (task.priority !== null && task.priority !== undefined) lines.push(`- priority: ${task.priority}`);
   if (Array.isArray(task.labels) && task.labels.length > 0) lines.push(`- labels: ${task.labels.join(", ")}`);
   if (Array.isArray(task.tags) && task.tags.length > 0) lines.push(`- tags: ${task.tags.join(", ")}`);

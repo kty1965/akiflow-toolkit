@@ -645,6 +645,59 @@ describe("mcp/tools/tasks", () => {
       // Then: MCP surfaces validation error
       expect(result.isError).toBe(true);
     });
+
+    test("passes deadline through to createTask input", async () => {
+      // Given: createTask captures its input
+      let captured: CreateTaskInput | null = null;
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            createTask: async (input) => {
+              captured = input;
+              return buildTask({ title: input.title });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling with a deadline, no schedule
+      await client.callTool({
+        name: "create_task",
+        arguments: { title: "Report", deadline: "2026-05-01" },
+      });
+
+      // Then: service receives deadline separate from date/datetime
+      expect(captured).toMatchObject({ title: "Report", deadline: "2026-05-01" });
+      expect(captured).not.toHaveProperty("date");
+    });
+
+    test("passes parent through, creating a subtask in one call", async () => {
+      // Given: createTask captures its input
+      let captured: CreateTaskInput | null = null;
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            createTask: async (input) => {
+              captured = input;
+              return buildTask({ title: input.title });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling with a parent id
+      await client.callTool({
+        name: "create_task",
+        arguments: { title: "Design review", parent: "parent-uuid" },
+      });
+
+      // Then: service receives parentId
+      expect(captured).toMatchObject({ title: "Design review", parentId: "parent-uuid" });
+    });
   });
 
   describe("update_task", () => {
@@ -672,6 +725,110 @@ describe("mcp/tools/tasks", () => {
 
       // Then: patch contains title only
       expect(calls).toEqual([{ id: "abc", patch: { title: "New title" } }]);
+    });
+
+    test("tags replaces the full tag set", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: setting tags to a new set
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", tags: ["tag-urgent", "tag-work"] },
+      });
+
+      // Then: patch.tags carries the full replacement array
+      expect(calls[0]?.patch).toEqual({ tags: ["tag-urgent", "tag-work"] });
+    });
+
+    test("tags=[] clears all tags", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing tags with an empty array
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", tags: [] },
+      });
+
+      // Then: patch.tags is an empty array, not omitted
+      expect(calls[0]?.patch).toEqual({ tags: [] });
+    });
+
+    test("deadline is independent of date/time", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: setting deadline only
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", deadline: "2026-05-01" },
+      });
+
+      // Then: patch carries deadline only, no date/datetime touched
+      expect(calls[0]?.patch).toEqual({ deadline: "2026-05-01" });
+    });
+
+    test("deadline=null clears the deadline", async () => {
+      // Given: updateTask captures the patch
+      const calls: Array<{ id: string; patch: UpdateTaskInput }> = [];
+      registerTaskTools(
+        server,
+        buildDeps({
+          command: {
+            updateTask: async (id, patch) => {
+              calls.push({ id, patch });
+              return buildTask({ id });
+            },
+          },
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: clearing deadline
+      await client.callTool({
+        name: "update_task",
+        arguments: { id: "abc", deadline: null },
+      });
+
+      // Then: patch.deadline === null
+      expect(calls[0]?.patch).toEqual({ deadline: null });
     });
 
     test("date=null clears the date", async () => {

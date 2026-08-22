@@ -14,13 +14,16 @@ import type {
   CalendarEvent,
   CreateEventInput,
   CreateTaskPayload,
+  CreateTimeSlotInput,
   Label,
   MeetingBrief,
   Recording,
   Tag,
   Task,
   TimeSlot,
+  UpdateEventInput,
   UpdateTaskPayload,
+  UpdateTimeSlotInput,
 } from "@core/types.ts";
 import { asDataArray, mapCalendar, mapCalendarEvent, mapMeetingBrief, mapRecording } from "./akiflow-mappers.ts";
 
@@ -89,20 +92,27 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     return parsed as T;
   }
 
+  /**
+   * Akiflow's raw /v5/tasks response has no `tags` field — the tag
+   * association is `tags_ids` (live-probed and confirmed: setting
+   * `tags_ids` via patchTasks round-trips correctly, but reading it back
+   * needs this mapping, since the domain `Task.tags` field name doesn't
+   * match the wire field).
+   */
   async getTasks(token: string, params: ListTasksParams = {}): Promise<ApiResponse<Task[]>> {
     const qs = new URLSearchParams();
     if (params.limit !== undefined) qs.set("limit", String(params.limit));
     if (params.sync_token) qs.set("sync_token", params.sync_token);
     const path = qs.toString() ? `/v5/tasks?${qs.toString()}` : "/v5/tasks";
-    const res = await this.request<ApiResponse<Task[]>>("GET", path, token);
+    const res = await this.request<ApiResponse<unknown[]>>("GET", path, token);
     assertApiResponseArray(res, "getTasks");
-    return res;
+    return { ...res, data: res.data.map(mapTaskTags) };
   }
 
   async patchTasks(token: string, tasks: Array<CreateTaskPayload | UpdateTaskPayload>): Promise<ApiResponse<Task[]>> {
-    const res = await this.request<ApiResponse<Task[]>>("PATCH", "/v5/tasks", token, tasks);
+    const res = await this.request<ApiResponse<unknown[]>>("PATCH", "/v5/tasks", token, tasks);
     assertApiResponseArray(res, "patchTasks");
-    return res;
+    return { ...res, data: res.data.map(mapTaskTags) };
   }
 
   /**
@@ -124,13 +134,66 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
   }
 
   async getTimeSlots(token: string, date: string): Promise<ApiResponse<TimeSlot[]>> {
-    const res = await this.request<ApiResponse<TimeSlot[]>>(
+    const res = await this.request<ApiResponse<unknown[]>>(
       "GET",
       `/v5/time_slots?date=${encodeURIComponent(date)}`,
       token,
     );
     assertApiResponseArray(res, "getTimeSlots");
-    return res;
+    return { ...res, data: res.data.map(mapTimeSlot) };
+  }
+
+  /**
+   * Time slots use the same simple PATCH-upsert pattern as tasks
+   * (live-probed: PATCH /v5/time_slots, not the complex v3 calendar-event
+   * envelope createEvent needs) — no calendar-identity resolution required.
+   */
+  async createTimeSlot(token: string, input: CreateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>> {
+    const nowIso = new Date().toISOString();
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+    const rawSlot = {
+      id: crypto.randomUUID(),
+      calendar_id: input.calendarId,
+      title: input.title,
+      description: input.description ?? null,
+      start_time: toUtc(input.startDatetime),
+      end_time: toUtc(input.endDatetime),
+      start_datetime_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      status: "confirmed",
+      global_created_at: nowIso,
+      global_updated_at: nowIso,
+    };
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
+  }
+
+  /** True partial update — live-probed: fields omitted here are left unchanged server-side. */
+  async updateTimeSlot(token: string, input: UpdateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>> {
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+    const rawSlot: Record<string, unknown> = {
+      id: input.timeSlotId,
+      global_updated_at: new Date().toISOString(),
+    };
+    if (input.title !== undefined) rawSlot.title = input.title;
+    if (input.startDatetime !== undefined) rawSlot.start_time = toUtc(input.startDatetime);
+    if (input.endDatetime !== undefined) rawSlot.end_time = toUtc(input.endDatetime);
+    if (input.description !== undefined) rawSlot.description = input.description;
+
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
+  }
+
+  async deleteTimeSlot(token: string, timeSlotId: string): Promise<ApiResponse<TimeSlot[]>> {
+    const rawSlot = {
+      id: timeSlotId,
+      deleted_at: new Date().toISOString(),
+      global_updated_at: new Date().toISOString(),
+    };
+    const raw = await this.request<unknown>("PATCH", "/v5/time_slots", token, [rawSlot]);
+    const data = asDataArray(raw).map(mapTimeSlot);
+    return { success: true, message: null, data };
   }
 
   async getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>> {
@@ -214,6 +277,48 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
       global_updated_at: nowIso,
       ...(input.location && { location: input.location }),
     };
+
+    const raw = await this.request<unknown>("POST", "/v3/events", token, [rawEvent]);
+    const data = asDataArray(raw).map(mapCalendarEvent);
+    return { success: true, message: null, data };
+  }
+
+  /**
+   * Partially update a calendar event. Same POST /v3/events write endpoint
+   * as createEvent, but live-probed as a true partial update: only the
+   * calendar identity envelope (connector/account/calendar ids) plus
+   * creator_id/organizer_id are required, and any field omitted (e.g.
+   * start_time/end_time when only renaming) is left unchanged server-side —
+   * unlike createEvent, which must supply the full event shape.
+   */
+  async updateEvent(token: string, input: UpdateEventInput): Promise<ApiResponse<CalendarEvent[]>> {
+    const calendars = await this.getCalendars(token);
+    const calendar = calendars.data.find((c) => c.id === input.calendarId);
+    if (!calendar) {
+      throw new ApiSchemaError(`updateEvent: calendar ${input.calendarId} not found — call get_calendars first`);
+    }
+    if (calendar.readOnly) {
+      throw new ApiSchemaError(`updateEvent: calendar "${calendar.name}" is read-only`);
+    }
+
+    const toUtc = (s: string) => `${new Date(s).toISOString().slice(0, 19)}.000Z`;
+
+    const rawEvent: Record<string, unknown> = {
+      id: input.eventId,
+      connector_id: calendar.provider,
+      origin_account_id: calendar.originAccountId,
+      akiflow_account_id: calendar.akiflowAccountId,
+      calendar_id: calendar.id,
+      origin_calendar_id: calendar.originId,
+      creator_id: calendar.originId,
+      organizer_id: calendar.originId,
+      global_updated_at: new Date().toISOString(),
+    };
+    if (input.title !== undefined) rawEvent.title = input.title;
+    if (input.startDatetime !== undefined) rawEvent.start_time = toUtc(input.startDatetime);
+    if (input.endDatetime !== undefined) rawEvent.end_time = toUtc(input.endDatetime);
+    if (input.description !== undefined) rawEvent.description = input.description;
+    if (input.location !== undefined) rawEvent.location = input.location;
 
     const raw = await this.request<unknown>("POST", "/v3/events", token, [rawEvent]);
     const data = asDataArray(raw).map(mapCalendarEvent);
@@ -308,6 +413,25 @@ function assertApiResponseArray(value: unknown, label: string): void {
   ) {
     throw new ApiSchemaError(`${label}: expected ApiResponse with data array`);
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapTimeSlot(raw: any): TimeSlot {
+  return {
+    id: String(raw?.id ?? ""),
+    calendarId: raw?.calendar_id ?? null,
+    title: raw?.title ?? null,
+    description: raw?.description ?? null,
+    start: raw?.start_time ?? "",
+    end: raw?.end_time ?? "",
+    status: raw?.status ?? null,
+    recurrence: raw?.recurrence ?? null,
+  };
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
+function mapTaskTags(raw: any): Task {
+  return { ...raw, tags: raw?.tags_ids ?? [] } as Task;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray

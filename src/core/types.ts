@@ -37,6 +37,7 @@ export interface Task {
   source: string | null;
   parent_id: string | null;
   position: number | null;
+  due_date: string | null; // YYYY-MM-DD — deadline, distinct from `date` (scheduled day)
 }
 
 // Create payload — H1: client-side UUID required for PATCH UPSERT
@@ -47,6 +48,8 @@ export interface CreateTaskPayload {
   datetime?: string;
   duration?: number;
   listId?: string;
+  due_date?: string;
+  parent_id?: string;
   global_created_at: string;
   global_updated_at: string;
 }
@@ -69,6 +72,8 @@ export interface UpdateTaskPayload {
   parent_id?: string | null;
   position?: number | null;
   shared?: boolean;
+  tags_ids?: string[];
+  due_date?: string | null;
 }
 
 // Label
@@ -118,6 +123,19 @@ export interface CreateEventInput {
   allDay?: boolean;
 }
 
+// Update event input — partial: only fields present are changed server-side
+// (live-probed: POST /v3/events with just the identity envelope + changed
+// fields preserves everything else, unlike createEvent's full envelope)
+export interface UpdateEventInput {
+  calendarId: string;
+  eventId: string;
+  title?: string;
+  startDatetime?: string; // ISO 8601
+  endDatetime?: string; // ISO 8601
+  description?: string | null;
+  location?: string | null;
+}
+
 // Meeting Assistant (Akiflow paid add-on) — aki.akiflow.com/api/v1
 export interface ActionItem {
   id: string;
@@ -155,13 +173,40 @@ export interface AkiPageResponse<T> {
   nextCursor: string | null;
 }
 
-// Time Slot
+// Time Slot — Akiflow's routine/block scheduling entity, distinct from both
+// Task and CalendarEvent. Live-probed GET /v5/time_slots: no `date`/`task_id`
+// field on the entity itself (a Task can reference one via its own
+// `time_slot_id`, but that's a one-way pointer, not present here).
 export interface TimeSlot {
   id: string;
-  date: string;
-  start: string;
-  end: string;
-  taskId: string;
+  calendarId: string | null;
+  title: string | null;
+  description: string | null;
+  start: string; // ISO8601
+  end: string; // ISO8601
+  status: string | null;
+  recurrence: string | null;
+}
+
+// Create time slot input — writes go through the same simple PATCH-upsert
+// pattern as tasks (live-probed: PATCH /v5/time_slots, not the complex v3
+// calendar-event envelope), so no calendar-identity resolution needed.
+export interface CreateTimeSlotInput {
+  calendarId: string;
+  title: string;
+  startDatetime: string; // ISO 8601
+  endDatetime: string; // ISO 8601
+  description?: string | null;
+}
+
+// Update time slot input — true partial update (live-probed: omitted
+// fields are left unchanged server-side, same as tasks).
+export interface UpdateTimeSlotInput {
+  timeSlotId: string;
+  title?: string;
+  startDatetime?: string; // ISO 8601
+  endDatetime?: string; // ISO 8601
+  description?: string | null;
 }
 
 // Credentials

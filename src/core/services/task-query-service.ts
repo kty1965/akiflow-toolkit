@@ -8,7 +8,17 @@
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type { Calendar, CalendarEvent, Label, MeetingBrief, Recording, Tag, Task, TaskQueryOptions } from "../types.ts";
+import type {
+  Calendar,
+  CalendarEvent,
+  Label,
+  MeetingBrief,
+  Recording,
+  Tag,
+  Task,
+  TaskQueryOptions,
+  TimeSlot,
+} from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
 import type { AuthService } from "./auth-service.ts";
@@ -162,6 +172,14 @@ export class TaskQueryService {
   async getEvents(date: string): Promise<CalendarEvent[]> {
     const res = await withRetry(
       () => this.deps.auth.withAuth((token) => this.deps.http.getEvents(token, date)),
+      READ_RETRY_POLICY,
+    );
+    return res.data;
+  }
+
+  async getTimeSlots(date: string): Promise<TimeSlot[]> {
+    const res = await withRetry(
+      () => this.deps.auth.withAuth((token) => this.deps.http.getTimeSlots(token, date)),
       READ_RETRY_POLICY,
     );
     return res.data;

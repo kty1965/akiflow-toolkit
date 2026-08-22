@@ -10,13 +10,16 @@ import type {
   CalendarEvent,
   CreateEventInput,
   CreateTaskPayload,
+  CreateTimeSlotInput,
   Label,
   MeetingBrief,
   Recording,
   Tag,
   Task,
   TimeSlot,
+  UpdateEventInput,
   UpdateTaskPayload,
+  UpdateTimeSlotInput,
 } from "../types.ts";
 
 export interface ListTasksParams {
@@ -35,9 +38,13 @@ export interface AkiflowHttpPort {
   getLabels(token: string): Promise<ApiResponse<Label[]>>;
   getTags(token: string): Promise<ApiResponse<Tag[]>>;
   getTimeSlots(token: string, date: string): Promise<ApiResponse<TimeSlot[]>>;
+  createTimeSlot(token: string, input: CreateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>>;
+  updateTimeSlot(token: string, input: UpdateTimeSlotInput): Promise<ApiResponse<TimeSlot[]>>;
+  deleteTimeSlot(token: string, timeSlotId: string): Promise<ApiResponse<TimeSlot[]>>;
   getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>>;
   getCalendars(token: string): Promise<ApiResponse<Calendar[]>>;
   createEvent(token: string, input: CreateEventInput): Promise<ApiResponse<CalendarEvent[]>>;
+  updateEvent(token: string, input: UpdateEventInput): Promise<ApiResponse<CalendarEvent[]>>;
   deleteEvent(token: string, calendarId: string, eventId: string): Promise<ApiResponse<CalendarEvent[]>>;
   getRecordings(token: string, cursor?: string): Promise<AkiPageResponse<Recording>>;
   getRecording(token: string, id: string): Promise<Recording>;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { CalendarEvent } from "@core/types.ts";
+import type { CalendarEvent, UpdateEventInput } from "@core/types.ts";
 import {
   addDaysIso,
   type CalendarToolsDeps,
@@ -11,6 +11,7 @@ import {
   GET_FREE_SLOTS_TOOL_NAME,
   registerCalendarTools,
   todayIso,
+  UPDATE_EVENT_TOOL_NAME,
 } from "@mcp/tools/calendar.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -25,7 +26,18 @@ function buildDeleteDeps(
 ): CalendarToolsDeps {
   return {
     taskQuery: { getEvents: async () => [] },
-    taskCommand: { createEvent: async () => buildEvent(), deleteEvent },
+    taskCommand: { createEvent: async () => buildEvent(), updateEvent: async () => buildEvent(), deleteEvent },
+  };
+}
+
+function buildUpdateDeps(updateEvent: (input: UpdateEventInput) => Promise<CalendarEvent>): CalendarToolsDeps {
+  return {
+    taskQuery: { getEvents: async () => [] },
+    taskCommand: {
+      createEvent: async () => buildEvent(),
+      updateEvent,
+      deleteEvent: async () => buildEvent(),
+    },
   };
 }
 
@@ -347,6 +359,103 @@ describe("mcp/tools/calendar", () => {
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("token refresh failed");
       expect(textOf(result)).toContain("af auth");
+    });
+  });
+
+  describe("update_event tool registration", () => {
+    test("registers an idempotent tool with examples in description", async () => {
+      // Given: a server with calendar tools registered
+      registerCalendarTools(
+        server,
+        buildUpdateDeps(async () => buildEvent()),
+      );
+      client = await connectClient(server);
+
+      // When: the client lists tools
+      const { tools } = await client.listTools();
+      const updateEvent = tools.find((t) => t.name === UPDATE_EVENT_TOOL_NAME);
+
+      // Then: the tool is present, idempotent, description includes usage examples
+      expect(updateEvent).toBeDefined();
+      expect(updateEvent?.annotations?.idempotentHint).toBe(true);
+      expect(updateEvent?.description ?? "").toContain("예:");
+    });
+  });
+
+  describe("update_event happy path", () => {
+    test("calls taskCommand.updateEvent with only the fields provided and formats the result", async () => {
+      // Given: a stub that records its input and returns the updated event
+      const calls: UpdateEventInput[] = [];
+      registerCalendarTools(
+        server,
+        buildUpdateDeps(async (input) => {
+          calls.push(input);
+          return buildEvent({ id: input.eventId, title: input.title ?? "Sync meeting" });
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling update_event with only a title change
+      const result = await client.callTool({
+        name: UPDATE_EVENT_TOOL_NAME,
+        arguments: { calendar_id: "cal-primary", event_id: "ev-1", title: "Renamed sync" },
+      });
+
+      // Then: only calendarId/eventId/title are passed through — no spurious datetime fields
+      expect(calls).toEqual([{ calendarId: "cal-primary", eventId: "ev-1", title: "Renamed sync" }]);
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain("Updated");
+      expect(textOf(result)).toContain("Renamed sync");
+    });
+  });
+
+  describe("update_event validation", () => {
+    test("no fields provided → isError without calling the service", async () => {
+      // Given: a stub that would fail the test if invoked
+      const calls: UpdateEventInput[] = [];
+      registerCalendarTools(
+        server,
+        buildUpdateDeps(async (input) => {
+          calls.push(input);
+          return buildEvent();
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling update_event with only the required ids, no changed fields
+      const result = await client.callTool({
+        name: UPDATE_EVENT_TOOL_NAME,
+        arguments: { calendar_id: "cal-primary", event_id: "ev-1" },
+      });
+
+      // Then: rejected before reaching the service
+      expect(calls).toEqual([]);
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("no fields to update");
+    });
+  });
+
+  describe("update_event error handling", () => {
+    test("underlying service throws → isError=true with recovery hint", async () => {
+      // Given: a stub that throws (e.g. unknown calendar/event id)
+      registerCalendarTools(
+        server,
+        buildUpdateDeps(async () => {
+          throw new Error("event ev-404 not found");
+        }),
+      );
+      client = await connectClient(server);
+
+      // When: calling the tool
+      const result = await client.callTool({
+        name: UPDATE_EVENT_TOOL_NAME,
+        arguments: { calendar_id: "cal-primary", event_id: "ev-404", title: "New title" },
+      });
+
+      // Then: isError flag set, error message + recovery guidance
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("event ev-404 not found");
+      expect(textOf(result)).toContain("get_calendars");
     });
   });
 
