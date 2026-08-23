@@ -1,3 +1,18 @@
+# [1.6.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.5.0...v1.6.0) (2026-08-23)
+
+
+### Bug Fixes
+
+* **ci:** pin bun-version to 1.3.11 to fix frozen-lockfile failures ([44d1eee](https://github.com/kty1965/akiflow-toolkit/commit/44d1eee1eb65b641b418d437d7c02f5c511de0b0))
+
+
+### Features
+
+* **mcp:** add task deadline field (create_task/update_task) ([66afdbe](https://github.com/kty1965/akiflow-toolkit/commit/66afdbee0aa1c2e7739579e5ced6987b8bc3937c))
+* **mcp:** add Time Slot tools (get/create/update/delete) ([220fbd9](https://github.com/kty1965/akiflow-toolkit/commit/220fbd9e84748f7c8768f05e60466157458029c7))
+* **mcp:** add update_event tool and task tag assignment ([f228a02](https://github.com/kty1965/akiflow-toolkit/commit/f228a024aa6623bfffefba71be7d5de2732f6a89)), closes [#87](https://github.com/kty1965/akiflow-toolkit/issues/87)
+* **mcp:** allow create_task to set parent in one call ([4358e27](https://github.com/kty1965/akiflow-toolkit/commit/4358e27520ba1caeedb716445c51a61cc7e30857))
+
 # [1.5.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.4.1...v1.5.0) (2026-08-16)
 
 
