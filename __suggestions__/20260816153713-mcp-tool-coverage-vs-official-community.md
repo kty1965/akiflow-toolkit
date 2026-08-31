@@ -1,8 +1,8 @@
 ---
 title: "공식/커뮤니티 Akiflow MCP 대비 tool 커버리지 확대"
 createdAt: 2026-08-16T15:37:13+09:00
-updatedAt: 2026-08-30T22:11:03+09:00
-version: "1.6.0"
+updatedAt: 2026-08-31T19:13:36+09:00
+version: "1.7.0"
 type: suggestion
 tags:
   - mcp
@@ -74,8 +74,25 @@ Discord 채널에서 CDP 로그인 fix(#79/PR #80)를 라이브 검증하는 김
       해당 필드가 채워진 실제 task도 0건이라 read로 형태를 역산할 수도 없었음. **다음
       단계는 추측이 아니라 Akiflow 웹앱에서 실제로 task를 "someday"로 지정한 뒤
       GET으로 그 값을 읽는 것** — 웹앱 조작이 필요해서 이번 세션에선 보류.
-- [ ] DoD-4: MCP를 통한 재인증(`login`/`refresh` 액션)을 tool로 노출할지 여부 결정 —
-      아직 미착수.
+- [x] DoD-4: MCP를 통한 재인증(`login`/`refresh` 액션)을 tool로 노출할지 여부 결정 완료
+      (2026-08-31, 코드 조사만으로 판단 — 브라우저 불필요). **결론: 노출하지 않는다.**
+      근거: `auth-service.ts`의 `authenticate()`가 이미 `withAuth()`의 CDP 미포함 자동
+      복구 경로이고, CDP 로그인은 명시적으로 `authenticateInteractive()`로 분리돼 있음
+      (코드 주석: "CDP login is intentionally excluded here — this method is on the
+      withAuth() recovery path used by every API call (including from the long-running
+      MCP server), which must never block on a human completing a browser login").
+      `cdp-launcher.ts`를 보면 실제로 로컬에 Chrome 프로세스를 띄우고 최대 5분
+      (`DEFAULT_LOGIN_TIMEOUT_MS`) 동안 사람이 브라우저에서 로그인을 완료하길 폴링
+      대기하는 흐름이라, MCP tool 호출(에이전트가 동기적으로 응답을 기다리는 모델)
+      안에서 트리거하면 디스플레이 없는 서버 환경에선 애초에 못 뜨고, 뜨더라도 에이전트가
+      "완료됐는지" 알 방법이 없이 최대 5분 블로킹됨 — tool 모델과 근본적으로 안 맞음.
+      "refresh"도 별도 tool로 의미가 없음: `withAuth()`가 모든 API 호출마다 이미
+      Tier1(refresh_token)/Tier2(디스크 재로드)/Tier3(browser reader 재추출)를 자동
+      수행하므로, 그 세 티어가 전부 실패한 상태(=CDP 없인 복구 불가)에서만 명시적
+      "refresh" tool이 의미 있는데, 그 경우 결국 CDP가 필요해 위와 같은 문제로 되돌아감.
+      **유지되는 설계**: `auth_status`(read-only, 이미 구현됨)로 상태만 진단해주고,
+      실제 재인증은 사람이 터미널에서 `af auth`를 실행하도록 안내하는 현재 방식이 맞음
+      — 새 tool 추가 불필요.
 - [ ] DoD-9 (신규, Phase 2 조사 중 식별): 반복 task/timeslot "이 일정만 vs 전체
       인스턴스" 스코프. **읽기 전용 조사 완료(2026-08-30)** — 실계정 raw GET만으로
       스키마는 확인됨, MCP tool 설계/write 실험은 아직. 방법: `AkiflowHttpAdapter.request()`로
@@ -218,13 +235,35 @@ raw task/이벤트 JSON을 직접 봐야 판단 가능한 것들. 조사만으�
 
 ### Phase 3 — 완전 미지 영역 (고비용·저확실성, 우선순위 낮음)
 엔드포인트 자체를 처음부터 찾아야 함 — HAR 캡처 등 별도 리서치 필요.
-1. Goal 연동(DoD-8) — Akiflow Goals가 지금 쓰는 `/v5/*`·`/v3/*` 밖의 완전 별도 API 표면일
+1. Goal 연동(DoD-8b) — Akiflow Goals가 지금 쓰는 `/v5/*`·`/v3/*` 밖의 완전 별도 API 표면일
    가능성 높음, 웹앱 트래픽 재캡처부터 시작
-2. Link 필드(DoD-8) — 서버 스키마에 존재하는지부터 확인
+2. ~~Link 필드~~ — **완료(DoD-8a, 2026-08-30)**, 아래 목록에서 제외.
 3. Project/Tag 생성·삭제 — `POST`/`DELETE /v5/labels`(또는 유사)이 서버에 실제 존재하는지
    확인 필요, 지금까지 어떤 레퍼런스(공식/커뮤니티)도 구현한 적 없는 영역
-4. MCP-native 재인증 액션(login/refresh as MCP tool, DoD-4) — CDP 브라우저 플로우를
-   tool 안에서 트리거하는 게 UX적으로 적절한지 설계 논의 먼저
+4. ~~MCP-native 재인증 액션(DoD-4)~~ — **완료(2026-08-31)**, 코드 조사만으로 "노출하지
+   않는다"로 결론남 (§3 DoD-4 참조). 브라우저 불필요했음, 아래 목록에서 제외.
+
+#### 다음 브라우저 세션 실행용 체크리스트 (2026-08-31 작성)
+
+`af auth status`가 만료 상태(source: cdp)라 이 문서를 쓰는 세션은 라이브 probe를 못함.
+브라우저 가능한 세션(claude-in-chrome 등)에서 아래 순서로 진행하면 바로 착수 가능:
+
+1. **재인증 먼저**: `af auth` 실행 → CDP가 로컬 Chrome을 띄움 → web.akiflow.com 로그인
+   완료 → `af auth status`로 `active` 확인.
+2. **Project/Tag 생성·삭제** (가장 저비용·고확실성이라 우선 추천): 웹 UI에서 새
+   Project/Tag를 만들고 삭제하는 동안 `read_network_requests`로 실제 호출된
+   메서드·URL·payload를 캡처. `POST`/`DELETE /v5/labels`(추정) 존재 여부부터 확인 —
+   없으면 이 항목은 여기서 기각하고 문서에 기록.
+3. **DoD-9 write 실험** (스키마 조사는 이미 끝남, §3 DoD-9 참조): 반복 task 하나 생성 →
+   "이 일정만" 수정 → "전체 시리즈" 수정, 세 조작 각각 HAR/네트워크 캡처해서 실제 PATCH
+   시퀀스 확인. 실 계정 데이터 보호를 위해 `[MCP-TEST]` 라벨 붙인 새 task로만 실험.
+4. **DoD-3 someday**: task 하나를 웹 UI에서 "someday"로 지정 → GET으로
+   `plan_period`/`plan_unit` 실제 값 확인 → 확인 즉시 원복(실 데이터 보호).
+5. **Goal 연동(DoD-8b)**: 우선순위 낮음, 위 3개보다 나중에. Goal 생성/조회 화면에서
+   네트워크 트래픽부터 재캡처(엔드포인트가 `/v5/*`·`/v3/*` 밖일 가능성 높음).
+
+각 항목 완료 후 이 문서(§3 해당 DoD)를 갱신하고 커밋 — 다음 세션이 어디까지 됐는지
+바로 알 수 있게.
 
 ### ⚠️ 설계 리스크: tool 개수
 PR #70 자체가 이미 "15→22 tool, ADR-0007 20-tool 임계값 초과" 를 미해결 이슈로 남겨둠.
