@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.6.0...v1.6.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **events): client-side date filter + feat(tasks:** links field ([#94](https://github.com/kty1965/akiflow-toolkit/issues/94)) ([153bb2b](https://github.com/kty1965/akiflow-toolkit/commit/153bb2b3969088806490df01031f888b08148d35)), closes [#86](https://github.com/kty1965/akiflow-toolkit/issues/86) [#86](https://github.com/kty1965/akiflow-toolkit/issues/86)
+
 # [1.6.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.5.0...v1.6.0) (2026-08-23)
 
 
