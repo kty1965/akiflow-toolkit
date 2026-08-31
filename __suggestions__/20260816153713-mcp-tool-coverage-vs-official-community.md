@@ -1,8 +1,8 @@
 ---
 title: "공식/커뮤니티 Akiflow MCP 대비 tool 커버리지 확대"
 createdAt: 2026-08-16T15:37:13+09:00
-updatedAt: 2026-08-16T23:23:42+09:00
-version: "1.4.0"
+updatedAt: 2026-08-30T22:11:03+09:00
+version: "1.6.0"
 type: suggestion
 tags:
   - mcp
@@ -77,9 +77,51 @@ Discord 채널에서 CDP 로그인 fix(#79/PR #80)를 라이브 검증하는 김
 - [ ] DoD-4: MCP를 통한 재인증(`login`/`refresh` 액션)을 tool로 노출할지 여부 결정 —
       아직 미착수.
 - [ ] DoD-9 (신규, Phase 2 조사 중 식별): 반복 task/timeslot "이 일정만 vs 전체
-      인스턴스" 스코프 — 미착수. 실제 반복 task에 대고 실험하는 게 부담스러워서(계정에
-      진짜 반복 일정이 있고, 잘못 건드리면 사용자의 실 데이터가 깨짐) 안전하게 접근할
-      방법(예: 테스트 계정, 또는 recurrence 필드 읽기 전용 조사부터)을 먼저 정해야 함.
+      인스턴스" 스코프. **읽기 전용 조사 완료(2026-08-30)** — 실계정 raw GET만으로
+      스키마는 확인됨, MCP tool 설계/write 실험은 아직. 방법: `AkiflowHttpAdapter.request()`로
+      `/v5/tasks?limit=2000`·`/v3/events?date=X`를 직접 GET(쓰기 없음).
+
+      **확인된 사실(raw 응답 관찰):**
+      - Event: master row는 `id === recurring_id`, `recurrence_exception: false`.
+        단일 occurrence override는 별도 row로 존재 — 같은 `recurring_id`,
+        `recurrence_exception: true`, `original_start_time`=override 대상 occurrence의
+        원래 시각, `origin_recurring_id`=Google의 `<eventId>_R<UTCstamp>` 포맷 그대로
+        패스스루(Akiflow가 새 개념을 만든 게 아니라 Google Calendar exception 모델을
+        그대로 미러링).
+      - Task: master row는 `id === recurring_id`, RRULE에 `UNTIL` 포함. materialize된
+        occurrence row는 각자 별도 `id`, 같은 `recurring_id`, RRULE엔 `UNTIL` 빠짐,
+        `original_date`가 앵커. 특이점: `recurrence_version:2`(즉 시리즈가 한 번 이상
+        수정된 적 있는) 시리즈 하나에서만 occurrence id 4개가 전부 UUIDv5(결정론적,
+        3번째 그룹이 `5`로 시작)였고, 나머지 미수정 시리즈 2개(총 72개 sibling)는 전부
+        UUIDv4(랜덤)였음 — n=1이라 일반화는 위험하지만, "시리즈 레벨 수정이 occurrence
+        id를 재생성할 수 있다"는 신호라 **occurrence id를 안정적 캐시 키로 가정하고
+        PATCH하는 설계는 위험할 수 있음**.
+
+      **미검증 가설(실제 관찰 없음, 다음 조사 대상):** "occurrence 하나만 수정 =
+      그 occurrence 자체의 task row를 PATCH" — 지금 관찰된 76개 occurrence 전부
+      `date === original_date`(한 번도 개별 이동된 적 없음)라 실제로 옮겨진 occurrence
+      사례가 0건.
+
+      **안전한 write 실험 시도 결과(2026-08-30):** 실 계정 데이터를 건드리지 않기 위해
+      `[MCP-TEST]` 라벨 붙인 완전히 새 task를 만들어(다른 어떤 시리즈와도 무관) 마스터
+      row 관찰 shape을 그대로 흉내내 `recurrence: "RRULE:FREQ=DAILY;COUNT=3"`(문자열,
+      wire read shape인 배열이 아니라 write에서 기존 코드가 쓰는 그대로) +
+      `recurring_id: <자기 자신의 id>`를 PATCH `/v5/tasks`로 시도 → **응답이 빈
+      배열(`data: []`)로 옴(서버가 거부/no-op한 것으로 보임)**, 3초 대기 후 재조회해도
+      occurrence row가 0개 materialize됨. 즉 "마스터에 recurrence+recurring_id만
+      세팅하면 서버가 occurrence들을 자동 생성해준다"는 가설은 **기각** — 지금 계정에서
+      관찰된 occurrence row들(마스터 하나당 수십 개)은 서버 자동 생성이 아니라 **공식
+      Akiflow 클라이언트가 recurring task를 만들 때 직접 각 occurrence row를 하나씩
+      PATCH로 만들어 넣는 것**으로 보임(materialization 로직 자체가 클라이언트 소유).
+      → 이 가설을 확정하고 "이 일정만 수정" 실제 API 시퀀스를 알아내려면 **추측성 write
+      반복이 아니라 공식 앱에서 실제로 반복 task를 만들 때 네트워크 트래픽(HAR)을 떠야
+      함** — DoD-3(someday)·DoD-8b(Goal)와 동일하게 브라우저 세션이 필요해 이 세션에선
+      더 진행 불가. 다음 단계: 브라우저 가능한 세션에서 (1) 반복 task 생성 (2) "이
+      일정만" 수정 (3) "전체 시리즈" 수정, 세 가지 조작 각각의 HAR을 떠서 실제 PATCH
+      시퀀스를 확인.
+
+      원본 raw 필드(meeting 제목·참석자명 등 실사용자 데이터)는 이 문서에 남기지 않음 —
+      probe 스크립트(`__scratch__`, 커밋 안 함) 재실행하면 동일 스키마 재확인 가능.
 - [x] DoD-5: Time Slot 카테고리 완료 (2026-08-16, PR #88 커밋 `220fbd9`). `get_time_slots`/
       `create_time_slot`/`update_time_slot`/`delete_time_slot` 4개 tool 신규 — 라이브로
       create→update→delete 전부 검증. `TimeSlot` 도메인 타입도 실제 API 응답 기준으로
@@ -99,10 +141,37 @@ Discord 채널에서 CDP 로그인 fix(#79/PR #80)를 라이브 검증하는 김
 - [x] DoD-10 (신규, 보너스): `create_task`에 `parent` 옵션 추가 완료 (2026-08-16, 커밋
       `4358e27`) — 기존엔 서브태스크 생성에 2번 호출 필요했는데, 라이브 probe로
       `parent_id`가 최초 create PATCH에 같이 들어가도 되는 걸 확인해서 원샷으로 개선.
-- [ ] DoD-8 (신규, 우선순위 낮음): Goal 연동, Link 필드 — Akiflow의 Goals는 지금 쓰는
-      API 표면(`/v5/*`, `/v3/*`) 밖의 완전히 별도 영역으로 추정, 새 엔드포인트부터
-      리버스엔지니어링해야 함. Link는 도메인 타입에 필드 자체가 없어 서버 스키마부터
-      확인 필요.
+- [x] DoD-8a: Link 필드 완료(2026-08-30). §7 작성 시점(2026-08-16) "필드 자체 없음"으로
+      기록했던 게 틀렸음 — raw `/v5/tasks` 조사에서 `links: string[]` 필드가 실존
+      확인됨(2000개 중 312개 task에 URL 배열로 채워져 있음, 예: Jira/Notion 링크).
+      `tags`/`due_date`와 같은 패턴(raw엔 있는데 `Task` 타입 미선언 + MCP tool 미노출).
+      write도 raw PATCH `/v5/tasks`로 create→update(교체)→delete 라이브 검증 완료(전체
+      교체 방식, `tags`와 동일). `Task.links` 타입 선언 + `mapTaskTags`에서 `links:
+      raw?.links ?? []` 정규화 + `update_task` MCP tool에 `links`(전체 교체, tags와
+      동일 패턴) 추가 + `formatTaskDetail`에 표시 — `create_task`엔 미추가(`tags`도
+      create엔 없는 기존 설계와 동일하게 맞춤). 단위 테스트 3곳(mapper/service/mcp
+      tool) + `composeApp()` 전체 스택 E2E(`[MCP-TEST]` 라벨 없이 create→update→
+      delete, 실계정) 검증 완료.
+- [ ] DoD-8b (우선순위 낮음): Goal 연동 — Akiflow의 Goals는 지금 쓰는 API 표면
+      (`/v5/*`, `/v3/*`) 밖의 완전히 별도 영역으로 추정, 새 엔드포인트부터
+      리버스엔지니어링해야 함(HAR 재캡처 필요, 브라우저 세션 필요 — DoD-3와 같은 이유로
+      이 세션에선 착수 불가).
+- [x] DoD-86-investigate: 이슈 #86(get_events 날짜 무시) 근본 원인 확정(2026-08-30).
+      raw GET으로 직접 확인: `GET /v3/events?date=2026-08-30` 요청에 오늘과 무관한
+      2023~2025년 이벤트 250개가 그대로 돌아옴 — **서버가 `date` 쿼리 파라미터를
+      사실상 무시**(클라이언트 루프 문제 아님, `get_events`/`get_free_slots` 둘 다
+      `days`만큼 매번 이 엔드포인트를 호출하는데 필터링 코드가 어디에도 없었음).
+      `mapCalendarEvent`로 매핑 후 `start`/`end`가 요청한 `date`와 겹치는 것만 남기는
+      클라이언트 필터(`eventOccursOnDate`, `akiflow-mappers.ts`)를 추가해 수정 —
+      `AkiflowHttpAdapter.getEvents`에 적용. 단위 테스트(mapper 3케이스 + adapter 필터링
+      1케이스) + 실계정 라이브 검증(`af cal --date 2025-01-28`가 250개가 아니라 실제
+      그 날짜의 7개만 반환하는 것 확인) 완료.
+- [ ] DoD-11 (신규, 2026-08-30 발견): raw `recurrence` 필드가 **배열**로 옴
+      (`["RRULE:FREQ=YEARLY"]`, 경우에 따라 `["DTSTART:...", "RRULE:..."]` 2개짜리도
+      있음)인데 `Task.recurrence`/`CalendarEvent.recurrence`는 `types.ts`에
+      `string | null`로 선언돼 있고 `mapCalendarEvent`(akiflow-api.ts:428)가 그대로
+      패스스루함. `#83`/`#87`(선언 타입 vs wire 실제 shape 불일치) 계열과 동일 패턴 —
+      별도 이슈로 분리할지 검토.
 
 ## 4. 범위 (Scope)
 
@@ -191,7 +260,7 @@ Phase 1+2를 다 구현하면(`update_event` +1, Time Slot +4~5, 나머지는 �
 | Set as priority Goal | ❌ | Goals 기능 통째로 미구현 (DoD-8) |
 | Edit Priority | ✅ | |
 | Edit Duration | ✅ | |
-| Edit Links | ❌ | 도메인 타입에 link/url 필드 자체가 없음 (DoD-8) |
+| Edit Links | ✅ | `update_task.links` (전체 교체, DoD-8a, 2026-08-30) |
 | Create Subtask | ⚠️ 부분 | `update_task.parent`로 사후 지정만 가능, `create_task`는 parent 옵션 없음 |
 | 반복 task 이동 시 전체 인스턴스 일괄 수정 | ⚠️ 부분 | `recurrence`(RRULE) r/w는 되지만 "이 일정만 vs 전체" 스코프 개념이 없음 |
 
