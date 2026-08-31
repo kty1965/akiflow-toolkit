@@ -324,6 +324,10 @@ const UpdateTaskInputShape = {
     .nullable()
     .optional()
     .describe("New due date (YYYY-MM-DD) — distinct from `date`, or null to clear"),
+  links: z
+    .array(z.string())
+    .optional()
+    .describe("Full replacement set of URLs attached to the task — not incremental. Pass [] to remove all links."),
 } as const;
 
 function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
@@ -332,7 +336,7 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
     {
       description:
         "Update fields on an existing Akiflow task (title/date/time/description/priority/" +
-        "duration/project/parent/position/tags/deadline). Use when the user asks to rename, reschedule, or otherwise edit " +
+        "duration/project/parent/position/tags/deadline/links). Use when the user asks to rename, reschedule, or otherwise edit " +
         "a specific task, such as 'rename task X to Y', 'move this task to tomorrow', or " +
         "'set priority on this task to 2'. Any field can be cleared by passing null. Returns " +
         "the updated task summary.\n\n" +
@@ -342,7 +346,8 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
         "- 'Set duration to 30 minutes' → { id: '<uuid>', duration: 30 }\n" +
         "- '이 태스크 시간 비워줘' → { id: '<uuid>', time: null }\n" +
         "- 'Tag this urgent' → { id: '<uuid>', tags: ['<urgent-tag-id>'] }\n" +
-        "- 'Remove all tags' → { id: '<uuid>', tags: [] }",
+        "- 'Remove all tags' → { id: '<uuid>', tags: [] }\n" +
+        "- 'Attach this PR link' → { id: '<uuid>', links: ['https://github.com/org/repo/pull/1'] }",
       inputSchema: UpdateTaskInputShape,
       annotations: {
         title: "Update task",
@@ -363,6 +368,7 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
           position?: number | null;
           tags?: string[];
           deadline?: string | null;
+          links?: string[];
         } = {};
         if (args.title !== undefined) patch.title = args.title;
         if (args.date !== undefined) patch.date = args.date;
@@ -388,6 +394,7 @@ function registerUpdateTask(server: McpServer, deps: TaskToolsDeps): void {
         if (args.position !== undefined) patch.position = args.position;
         if (args.tags !== undefined) patch.tags = args.tags;
         if (args.deadline !== undefined) patch.deadline = args.deadline;
+        if (args.links !== undefined) patch.links = args.links;
 
         if (Object.keys(patch).length === 0) {
           return textResult("update_task: no fields to update.", true);
@@ -742,6 +749,7 @@ export function formatTaskDetail(task: Task): string {
   if (task.priority !== null && task.priority !== undefined) lines.push(`- priority: ${task.priority}`);
   if (Array.isArray(task.labels) && task.labels.length > 0) lines.push(`- labels: ${task.labels.join(", ")}`);
   if (Array.isArray(task.tags) && task.tags.length > 0) lines.push(`- tags: ${task.tags.join(", ")}`);
+  if (Array.isArray(task.links) && task.links.length > 0) lines.push(`- links: ${task.links.join(", ")}`);
   if (task.recurrence) lines.push(`- recurrence: ${task.recurrence}`);
   lines.push(`- done: ${task.done ? "✓" : "✗"}`);
   lines.push("");

@@ -55,6 +55,7 @@ export interface UpdateTaskInput {
   position?: number | null;
   tags?: string[];
   deadline?: string | null;
+  links?: string[];
 }
 
 export interface TaskCommandServiceDeps {
@@ -107,6 +108,7 @@ export class TaskCommandService {
     if (patch.position !== undefined) payload.position = patch.position;
     if (patch.tags !== undefined) payload.tags_ids = patch.tags;
     if (patch.deadline !== undefined) payload.due_date = patch.deadline;
+    if (patch.links !== undefined) payload.links = patch.links;
 
     return this.patchSingle(payload, "updateTask");
   }

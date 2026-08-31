@@ -444,7 +444,7 @@ function mapTimeSlot(raw: any): TimeSlot {
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
 function mapTaskTags(raw: any): Task {
-  return { ...raw, tags: raw?.tags_ids ?? [] } as Task;
+  return { ...raw, tags: raw?.tags_ids ?? [], links: raw?.links ?? [] } as Task;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray

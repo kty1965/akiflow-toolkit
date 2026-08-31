@@ -199,6 +199,45 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       // Then: tags defaults to [] so Array.isArray checks downstream stay safe
       expect(res.data[0]?.tags).toEqual([]);
     });
+
+    test("passes through raw `links` field (live-probed 2026-08-30: real, populated field)", async () => {
+      // Given: a raw /v5/tasks response with a populated links array
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "t-1", title: "Sample", links: ["https://example.com/a"] }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: links is passed through unchanged
+      expect(res.data[0]?.links).toEqual(["https://example.com/a"]);
+    });
+
+    test("maps missing `links` to an empty array, not undefined", async () => {
+      // Given: a raw response with no links field at all
+      mockFetch(
+        async () =>
+          new Response(JSON.stringify({ success: true, message: null, data: [{ id: "t-1", title: "Sample" }] }), {
+            status: 200,
+          }),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: links defaults to [] so Array.isArray checks downstream stay safe
+      expect(res.data[0]?.links).toEqual([]);
+    });
   });
 
   describe("getLabels", () => {
