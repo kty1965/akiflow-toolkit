@@ -402,6 +402,33 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       expect(capturedUrl).toContain("date=2026-04-16");
     });
 
+    test("getEvents filters out events the server returns for other dates (issue #86)", async () => {
+      // Given: the server ignores the `date` query param and returns events
+      // spanning unrelated dates alongside the one actually requested
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [
+                { id: "on-date", start_time: "2026-04-16T09:00:00Z", end_time: "2026-04-16T09:30:00Z" },
+                { id: "other-year", start_time: "2024-01-05T09:00:00Z", end_time: "2024-01-05T09:30:00Z" },
+                { id: "other-day", start_time: "2026-04-17T09:00:00Z", end_time: "2026-04-17T09:30:00Z" },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getEvents requests a single date
+      const res = await adapter.getEvents("t", "2026-04-16");
+
+      // Then: only the event actually on that date survives
+      expect(res.data.map((e) => e.id)).toEqual(["on-date"]);
+    });
+
     test("getCalendars uses /v3/calendars", async () => {
       // Given: calendars fetch
       let capturedUrl = "";
