@@ -252,6 +252,19 @@ describe("TaskCommandService", () => {
       expect(payload2).not.toHaveProperty("datetime");
     });
 
+    test("maps links straight onto the payload as a full replacement array (live-probed: real field name)", async () => {
+      // Given: a port that echoes patch data
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: update links
+      await service.updateTask("id-1", { links: ["https://example.com/a", "https://example.com/b"] });
+
+      // Then: payload.links carries the full replacement array
+      const payload = calls[0].tasks[0] as UpdateTaskPayload;
+      expect(payload.links).toEqual(["https://example.com/a", "https://example.com/b"]);
+    });
+
     test("clears duration and projectId when passed null", async () => {
       // Given: a port that echoes patch data
       const { port, calls } = createHttp();

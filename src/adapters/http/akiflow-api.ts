@@ -25,7 +25,14 @@ import type {
   UpdateTaskPayload,
   UpdateTimeSlotInput,
 } from "@core/types.ts";
-import { asDataArray, mapCalendar, mapCalendarEvent, mapMeetingBrief, mapRecording } from "./akiflow-mappers.ts";
+import {
+  asDataArray,
+  eventOccursOnDate,
+  mapCalendar,
+  mapCalendarEvent,
+  mapMeetingBrief,
+  mapRecording,
+} from "./akiflow-mappers.ts";
 
 const BASE_URL = "https://api.akiflow.com";
 // Meeting Assistant (recordings/briefs) lives on a separate Akiflow host —
@@ -196,10 +203,16 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     return { success: true, message: null, data };
   }
 
+  /**
+   * `date` is sent as a query param but the server does not actually filter
+   * by it (live-probed 2026-08-30, issue #86: a single-date request returned
+   * 250+ events spanning multiple years) — so filtering happens client-side.
+   */
   async getEvents(token: string, date: string): Promise<ApiResponse<CalendarEvent[]>> {
     const res = await this.request<ApiResponse<unknown[]>>("GET", `/v3/events?date=${encodeURIComponent(date)}`, token);
     assertApiResponseArray(res, "getEvents");
-    return { ...res, data: res.data.map(mapCalendarEvent) };
+    const events = res.data.map(mapCalendarEvent).filter((event) => eventOccursOnDate(event, date));
+    return { ...res, data: events };
   }
 
   async getCalendars(token: string): Promise<ApiResponse<Calendar[]>> {
@@ -431,7 +444,7 @@ function mapTimeSlot(raw: any): TimeSlot {
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
 function mapTaskTags(raw: any): Task {
-  return { ...raw, tags: raw?.tags_ids ?? [] } as Task;
+  return { ...raw, tags: raw?.tags_ids ?? [], links: raw?.links ?? [] } as Task;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray

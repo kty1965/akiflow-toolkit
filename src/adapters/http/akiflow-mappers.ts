@@ -35,6 +35,22 @@ export function mapCalendarEvent(raw: any): CalendarEvent {
   };
 }
 
+/**
+ * True if a mapped CalendarEvent's [start, end) span touches `date` (YYYY-MM-DD).
+ * Needed because `/v3/events?date=...` does not actually filter server-side
+ * (live-probed 2026-08-30: a single-date request returned 250+ events spanning
+ * multiple years) — see issue #86. Compares the UTC date portion of the ISO
+ * start/end (both always populated by mapCalendarEvent's own fallbacks), so an
+ * event with neither start nor end info (empty string) is excluded rather than
+ * matching every date.
+ */
+export function eventOccursOnDate(event: CalendarEvent, date: string): boolean {
+  const startDay = event.start.slice(0, 10);
+  const endDay = event.end.slice(0, 10);
+  if (!startDay) return false;
+  return startDay <= date && date <= (endDay || startDay);
+}
+
 export function mapCalendar(raw: any): Calendar {
   return {
     id: String(raw?.id ?? ""),

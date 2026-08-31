@@ -297,6 +297,7 @@ describe("mcp/tools/tasks", () => {
                 priority: 2,
                 tags: ["q2"],
                 labels: ["urgent"],
+                links: ["https://example.com/spec"],
                 listId: "work",
               }),
           },
@@ -318,6 +319,7 @@ describe("mcp/tools/tasks", () => {
       expect(text).toContain("- priority: 2");
       expect(text).toContain("- labels: urgent");
       expect(text).toContain("- tags: q2");
+      expect(text).toContain("- links: https://example.com/spec");
       expect(text).toContain("### Notes");
       expect(text).toContain("Outline scope, risks, and rollout plan.");
     });

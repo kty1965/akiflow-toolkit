@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   asDataArray,
+  eventOccursOnDate,
   mapCalendar,
   mapCalendarEvent,
   mapMeetingBrief,
@@ -81,6 +82,37 @@ describe("akiflow-mappers", () => {
       expect(event.start).toBe("");
       expect(event.end).toBe("");
       expect(typeof event.start).toBe("string");
+    });
+  });
+
+  describe("eventOccursOnDate", () => {
+    test("matches a single-day timed event on its own date", () => {
+      // Given: an event mapped from a single-day timed raw event
+      const event = mapCalendarEvent({ start_time: "2026-04-20T09:00:00Z", end_time: "2026-04-20T09:30:00Z" });
+
+      // Then: it occurs on that date and no other
+      expect(eventOccursOnDate(event, "2026-04-20")).toBe(true);
+      expect(eventOccursOnDate(event, "2026-04-19")).toBe(false);
+      expect(eventOccursOnDate(event, "2026-04-21")).toBe(false);
+    });
+
+    test("matches every day of a multi-day span", () => {
+      // Given: an event spanning three days (e.g. an all-day multi-day event)
+      const event = mapCalendarEvent({ start_date: "2026-04-20", end_date: "2026-04-22" });
+
+      // Then: it occurs on the start day, an in-between day, and the end day
+      expect(eventOccursOnDate(event, "2026-04-20")).toBe(true);
+      expect(eventOccursOnDate(event, "2026-04-21")).toBe(true);
+      expect(eventOccursOnDate(event, "2026-04-22")).toBe(true);
+      expect(eventOccursOnDate(event, "2026-04-23")).toBe(false);
+    });
+
+    test("excludes an event with no start info at all", () => {
+      // Given: a malformed raw event with neither timed nor all-day fields
+      const event = mapCalendarEvent({ id: "evt-4" });
+
+      // Then: it matches no date (empty start, not "every date")
+      expect(eventOccursOnDate(event, "2026-04-20")).toBe(false);
     });
   });
 

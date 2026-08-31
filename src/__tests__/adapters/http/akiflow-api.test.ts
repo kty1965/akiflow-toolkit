@@ -199,6 +199,45 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       // Then: tags defaults to [] so Array.isArray checks downstream stay safe
       expect(res.data[0]?.tags).toEqual([]);
     });
+
+    test("passes through raw `links` field (live-probed 2026-08-30: real, populated field)", async () => {
+      // Given: a raw /v5/tasks response with a populated links array
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "t-1", title: "Sample", links: ["https://example.com/a"] }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: links is passed through unchanged
+      expect(res.data[0]?.links).toEqual(["https://example.com/a"]);
+    });
+
+    test("maps missing `links` to an empty array, not undefined", async () => {
+      // Given: a raw response with no links field at all
+      mockFetch(
+        async () =>
+          new Response(JSON.stringify({ success: true, message: null, data: [{ id: "t-1", title: "Sample" }] }), {
+            status: 200,
+          }),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: links defaults to [] so Array.isArray checks downstream stay safe
+      expect(res.data[0]?.links).toEqual([]);
+    });
   });
 
   describe("getLabels", () => {
@@ -400,6 +439,33 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       // Then: v3 endpoint is used with encoded date
       expect(capturedUrl).toContain("/v3/events");
       expect(capturedUrl).toContain("date=2026-04-16");
+    });
+
+    test("getEvents filters out events the server returns for other dates (issue #86)", async () => {
+      // Given: the server ignores the `date` query param and returns events
+      // spanning unrelated dates alongside the one actually requested
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [
+                { id: "on-date", start_time: "2026-04-16T09:00:00Z", end_time: "2026-04-16T09:30:00Z" },
+                { id: "other-year", start_time: "2024-01-05T09:00:00Z", end_time: "2024-01-05T09:30:00Z" },
+                { id: "other-day", start_time: "2026-04-17T09:00:00Z", end_time: "2026-04-17T09:30:00Z" },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getEvents requests a single date
+      const res = await adapter.getEvents("t", "2026-04-16");
+
+      // Then: only the event actually on that date survives
+      expect(res.data.map((e) => e.id)).toEqual(["on-date"]);
     });
 
     test("getCalendars uses /v3/calendars", async () => {
