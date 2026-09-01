@@ -1,8 +1,8 @@
 ---
 title: "공식/커뮤니티 Akiflow MCP 대비 tool 커버리지 확대"
 createdAt: 2026-08-16T15:37:13+09:00
-updatedAt: 2026-08-31T19:13:36+09:00
-version: "1.7.0"
+updatedAt: 2026-09-02T00:02:15+09:00
+version: "1.8.0"
 type: suggestion
 tags:
   - mcp
@@ -189,6 +189,42 @@ Discord 채널에서 CDP 로그인 fix(#79/PR #80)를 라이브 검증하는 김
       `string | null`로 선언돼 있고 `mapCalendarEvent`(akiflow-api.ts:428)가 그대로
       패스스루함. `#83`/`#87`(선언 타입 vs wire 실제 shape 불일치) 계열과 동일 패턴 —
       별도 이슈로 분리할지 검토.
+- [ ] DoD-12 (신규, Phase 3 조사, 2026-09-01): Project/Tag 생성·삭제.
+      **Project: 완전히 확인됨(라이브 write 검증 완료).** `PATCH /v5/labels`가
+      Project의 create/update/delete 전부를 처리하는 단일 upsert 엔드포인트 —
+      task/event와 동일한 "client가 UUID를 먼저 만들고 PATCH로 올리는" 패턴. 관찰된
+      시퀀스: ① 최초 생성 시 `{title:"", color:<auto>, sorting:-1000, id:<client
+      UUID v4>, data:{}, icon:null, parent_id:null, type:null, global_created_at,
+      deleted_at:null, global_updated_at}` PATCH(서버가 `title:""`를 `null`로
+      정규화) → ② 사용자가 이름을 입력하면 같은 `id`로 `title`만 채운 두 번째 PATCH
+      (rename). 삭제는 같은 엔드포인트에 `deleted_at`을 타임스탬프로 채우는
+      soft-delete(다른 필드는 전부 `null`로 리셋). 응답 shape:
+      `{success, message, data:[{id, user_id, parent_id, title, icon, color,
+      sorting, type, global_created_at, global_updated_at, data, deleted_at}]}`.
+      실계정 `GET /v5/labels?limit=2500`(과거~현재 전체 Project, 150+행)로 확인한
+      결과 **모든 행의 `type`이 `null`** — Tag와 테이블을 공유하며 `type`으로
+      구분한다는 가설은 아래 관찰로 기각됨. 이 결과로 `af project add`/`af project
+      delete`(`src/cli/commands/project.ts`의 "Label CRUD is not exposed" 스텁)를
+      구현할 수 있음.
+      **Tag: 미해결로 남음.** 웹 UI의 태스크 상세 패널 → 태그 아이콘 → "Create Tag
+      "미이름"" 인라인 플로우로 새 태그(`MCP-TEST-TAG`) 생성을 시도 — 클릭 직후
+      체크마크가 표시돼 성공한 것처럼 보였으나, 패널을 닫았다 다시 열자 태그
+      목록에서 완전히 사라짐(선택되지 않은 상태도 아니고 목록 자체에 없음). 확인차
+      돌린 `GET /v5/tags?limit=2500`(read-only)에도 계정의 기존 6개 태그
+      (GovSaaS/Datadog/OnPremise/HR/Development/Infra, `has_next_page:false`)만
+      있고 새 태그는 없음, `GET /v5/labels`에도 없음(Project만 존재). **즉 이번
+      계정에서 관찰한 한도 내에서는 웹 UI의 인라인 "Create Tag"가 서버에
+      영속화되지 않았다** — 버그인지, 별도 확인 스텝이 빠진 것인지, 계정/플랜
+      제약인지는 미확인. `window.fetch`/`XMLHttpRequest.prototype` 패치(메인
+      윈도우 + 발견된 iframe 6개 전부)로 실제 write 호출을 잡으려 했으나 **어떤
+      요청도 캡처되지 않음**(`read_network_requests` 내장 도구도 동일) — Performance
+      API 타임라인에는 그 시점에 `/v5/labels` XHR이 몇 차례 찍혔지만 body를 못
+      얻었고, 이후 태그가 사라진 정황상 Project 관련 sync였을 가능성이 큼(확정
+      아님). **다음 단계는 JS 패치 대신 Chrome DevTools의 Network 탭(또는 HAR
+      export)으로 직접 캡처** — 이번 세션은 claude-in-chrome의 JS 인터셉션만
+      시도했고 DevTools Network 탭 자체는 열어보지 않음.
+      실험에 쓴 테스트 Project(`[MCP-TEST]`, id `8add671d-…`)와 그 안의 task는
+      실험 종료 후 삭제 완료(계정에 잔존물 없음).
 
 ## 4. 범위 (Scope)
 
@@ -238,28 +274,37 @@ raw task/이벤트 JSON을 직접 봐야 판단 가능한 것들. 조사만으�
 1. Goal 연동(DoD-8b) — Akiflow Goals가 지금 쓰는 `/v5/*`·`/v3/*` 밖의 완전 별도 API 표면일
    가능성 높음, 웹앱 트래픽 재캡처부터 시작
 2. ~~Link 필드~~ — **완료(DoD-8a, 2026-08-30)**, 아래 목록에서 제외.
-3. Project/Tag 생성·삭제 — `POST`/`DELETE /v5/labels`(또는 유사)이 서버에 실제 존재하는지
-   확인 필요, 지금까지 어떤 레퍼런스(공식/커뮤니티)도 구현한 적 없는 영역
+3. Project/Tag 생성·삭제 (DoD-12) — **Project 절반 완료(2026-09-01)**, `PATCH
+   /v5/labels`가 실제 존재하고 create/update/delete 전부 처리하는 걸 라이브로 확인함
+   (§3 DoD-12 참조). **Tag 쪽은 여전히 미해결** — 인라인 "Create Tag" UI가 서버에
+   영속화 안 되는 현상만 확인, 실제 write 엔드포인트 미포착(§3 DoD-12 참조).
 4. ~~MCP-native 재인증 액션(DoD-4)~~ — **완료(2026-08-31)**, 코드 조사만으로 "노출하지
    않는다"로 결론남 (§3 DoD-4 참조). 브라우저 불필요했음, 아래 목록에서 제외.
 
-#### 다음 브라우저 세션 실행용 체크리스트 (2026-08-31 작성)
+#### 다음 브라우저 세션 실행용 체크리스트 (2026-09-01 갱신)
 
-`af auth status`가 만료 상태(source: cdp)라 이 문서를 쓰는 세션은 라이브 probe를 못함.
-브라우저 가능한 세션(claude-in-chrome 등)에서 아래 순서로 진행하면 바로 착수 가능:
+`af auth`(CLI, CDP 세션)와 claude-in-chrome이 조작하는 브라우저는 서로 다른 Chrome
+세션/쿠키 저장소라는 게 이번 세션에서 확인됨 — 재인증은 **CLI(`af auth`)와
+claude-in-chrome 브라우저 양쪽에서 각각** 필요(웹 로그인은 사람이 직접).
 
-1. **재인증 먼저**: `af auth` 실행 → CDP가 로컬 Chrome을 띄움 → web.akiflow.com 로그인
-   완료 → `af auth status`로 `active` 확인.
-2. **Project/Tag 생성·삭제** (가장 저비용·고확실성이라 우선 추천): 웹 UI에서 새
-   Project/Tag를 만들고 삭제하는 동안 `read_network_requests`로 실제 호출된
-   메서드·URL·payload를 캡처. `POST`/`DELETE /v5/labels`(추정) 존재 여부부터 확인 —
-   없으면 이 항목은 여기서 기각하고 문서에 기록.
-3. **DoD-9 write 실험** (스키마 조사는 이미 끝남, §3 DoD-9 참조): 반복 task 하나 생성 →
+1. **Tag 생성·삭제 실제 엔드포인트 포착** (DoD-12 잔여, 우선 추천 — Project는
+   이미 끝났음): 이번 세션은 `window.fetch`/`XMLHttpRequest.prototype` JS 패치로
+   시도했다가 실패(메인 윈도우 + 발견된 iframe 6개 전부 패치했는데도 호출을 못
+   잡음). **다음 세션은 JS 패치 대신 Chrome DevTools의 Network 탭(또는 HAR export)을
+   직접 사용** — claude-in-chrome이 아니라 `chrome-devtools-mcp` 계열 도구나 사람이
+   DevTools를 직접 열어서 캡처하는 편이 나을 수 있음. 태그 생성 직후 패널을 닫았다
+   다시 열어서 실제로 남아있는지도 반드시 재확인(이번 세션에선 사라졌음).
+   `[MCP-TEST-TAG]`류 이름으로 실험하고 끝나면 삭제.
+2. **DoD-9 write 실험** (스키마 조사는 이미 끝남, §3 DoD-9 참조): 반복 task 하나 생성 →
    "이 일정만" 수정 → "전체 시리즈" 수정, 세 조작 각각 HAR/네트워크 캡처해서 실제 PATCH
    시퀀스 확인. 실 계정 데이터 보호를 위해 `[MCP-TEST]` 라벨 붙인 새 task로만 실험.
-4. **DoD-3 someday**: task 하나를 웹 UI에서 "someday"로 지정 → GET으로
-   `plan_period`/`plan_unit` 실제 값 확인 → 확인 즉시 원복(실 데이터 보호).
-5. **Goal 연동(DoD-8b)**: 우선순위 낮음, 위 3개보다 나중에. Goal 생성/조회 화면에서
+   이 항목도 request body 캡처가 필요하므로 위 Tag 항목과 같은 DevTools 방식을 먼저
+   검증해보고 적용.
+3. **DoD-3 someday**: task 하나를 웹 UI에서 "someday"로 지정 → GET으로
+   `plan_period`/`plan_unit` 실제 값 확인 → 확인 즉시 원복(실 데이터 보호). 이건
+   "UI 조작 → GET으로 읽기"만 필요해서 네트워크 write 캡처 없이도 가능 — Tag/DoD-9보다
+   먼저 해도 됨.
+4. **Goal 연동(DoD-8b)**: 우선순위 낮음, 위 항목들보다 나중에. Goal 생성/조회 화면에서
    네트워크 트래픽부터 재캡처(엔드포인트가 `/v5/*`·`/v3/*` 밖일 가능성 높음).
 
 각 항목 완료 후 이 문서(§3 해당 DoD)를 갱신하고 커밋 — 다음 세션이 어디까지 됐는지
