@@ -163,9 +163,71 @@ describe("AuthService", () => {
       expect(storage.state.saveCalls.length).toBe(0);
     });
 
-    test("expired stored creds → fall through to Tier 2", async () => {
-      // Given: storage has expired credentials and a browser reader returns a token
+    test("expired stored creds with refresh token → refresh, save rotated token, skip browser", async () => {
+      // Given: storage has expired credentials with a refresh token
       const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000 }));
+      const reader = new StubReader({ type: "null" });
+      const refresher = createRefresher({
+        access_token: "refreshed_from_disk",
+        refresh_token: "rotated_refresh_token",
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: stored refresh token was exchanged and browser readers were never touched
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("refreshed_from_disk");
+      expect(creds.refreshToken).toBe("rotated_refresh_token");
+      expect(creds.expiresAt).toBeGreaterThan(Date.now());
+      expect(storage.state.saveCalls.length).toBe(1);
+      expect(storage.state.current?.refreshToken).toBe("rotated_refresh_token");
+    });
+
+    test("expired stored creds, refresh fails → fall through to browser readers", async () => {
+      // Given: expired stored creds whose refresh token is rejected; a browser reader has a cookie token
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000 }));
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "browser_access", browser: "Chrome", expiresAt: Math.floor(Date.now() / 1000) + 600 },
+      });
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("refresh rejected", 401) };
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: refresh was attempted once, then the browser reader supplied the creds
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(1);
+      expect(creds.accessToken).toBe("browser_access");
+    });
+
+    test("expired stored creds without refresh token, no readers → AuthSourceMissingError", async () => {
+      // Given: expired stored creds with no refresh token (cookie-sourced) and no browser readers
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000, refreshToken: "" }));
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When / Then: nothing to refresh with and nothing to read from
+      await expect(service.authenticate()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("expired stored creds without refresh token → fall through to Tier 2", async () => {
+      // Given: storage has expired credentials (no refresh token) and a browser reader returns a token
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000, refreshToken: "" }));
       const reader = new StubReader({
         type: "ok",
         value: {

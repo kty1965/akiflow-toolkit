@@ -39,6 +39,14 @@ export class AuthService {
     const stored = await this.deps.storage.loadCredentials();
     if (stored && !this.isExpired(stored)) return stored;
 
+    // An expired access token is the normal state after its 30-minute TTL, so
+    // refresh before touching browser readers — headless callers (MCP server)
+    // have no browser to fall back to.
+    if (stored) {
+      const refreshed = await this.recoverTier1Refresh(stored);
+      if (refreshed) return refreshed;
+    }
+
     for (const reader of this.deps.browserReaders) {
       try {
         const extracted = await reader.extract();
