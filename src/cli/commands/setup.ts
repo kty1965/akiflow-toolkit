@@ -5,7 +5,7 @@
 // Read, merge, atomic-write to preserve existing user config.
 // ---------------------------------------------------------------------------
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
@@ -179,7 +179,9 @@ export async function registerMcpServer(
 
   parsed.mcpServers = { ...existingServers, akiflow: toConfigEntry(entry) };
 
-  await atomicWriteJson(configPath, parsed);
+  // The http entry embeds the bearer token, so never leave it group/world readable.
+  const mode = await existingMode(configPath);
+  await atomicWriteJson(configPath, parsed, isHttpEntry(entry) ? mode & 0o700 : mode);
   return {
     state: existingAkiflow === undefined ? "added" : "updated",
     existing: existingAkiflow,
@@ -200,11 +202,22 @@ function isSameEntry(a: unknown, b: AkiflowMcpEntry): boolean {
   return args.every((v, i) => v === b.args[i]);
 }
 
-async function atomicWriteJson(path: string, data: unknown): Promise<void> {
+async function existingMode(path: string): Promise<number> {
+  try {
+    return (await stat(path)).mode & 0o777;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    return 0o600;
+  }
+}
+
+async function atomicWriteJson(path: string, data: unknown, mode: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
   const json = `${JSON.stringify(data, null, 2)}\n`;
-  await writeFile(tmp, json, "utf-8");
+  await writeFile(tmp, json, { encoding: "utf-8", mode });
+  // writeFile's mode is filtered by the umask; chmod applies it exactly.
+  await chmod(tmp, mode);
   await rename(tmp, path);
 }
 

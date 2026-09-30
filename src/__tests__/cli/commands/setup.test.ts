@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -282,6 +282,32 @@ describe("registerMcpServer — http entry", () => {
     expect(result.state).toBe("updated");
     const written = JSON.parse(await readFile(configPath, "utf-8"));
     expect(written.mcpServers.akiflow.type).toBe("http");
+  });
+
+  test("strips group/other bits from an existing config because it now holds the token", async () => {
+    // Given: a group-readable config with the stdio entry
+    const configPath = join(home, ".claude.json");
+    await writeFile(configPath, JSON.stringify({ mcpServers: {} }));
+    await chmod(configPath, 0o664);
+
+    // When: registering the http entry
+    await registerMcpServer(configPath, buildHttpEntry("tok", 7823), rejectingConfirm());
+
+    // Then: owner-only
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  test("stdio registration preserves the existing file mode", async () => {
+    // Given: a config with a custom mode
+    const configPath = join(home, ".claude.json");
+    await writeFile(configPath, "{}");
+    await chmod(configPath, 0o640);
+
+    // When: registering the stdio entry
+    await registerMcpServer(configPath, AKIFLOW_MCP_ENTRY, rejectingConfirm());
+
+    // Then: mode unchanged rather than reset by the tmp-file rename
+    expect((await stat(configPath)).mode & 0o777).toBe(0o640);
   });
 
   test("identical http entry → 'already', a rotated token → differs", async () => {
