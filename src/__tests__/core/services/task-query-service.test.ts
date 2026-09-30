@@ -350,6 +350,22 @@ describe("TaskQueryService", () => {
         expect(tasks.map((t) => t.id)).toEqual(["inbox-open"]);
       });
 
+      test("someday → open status-7 tasks", async () => {
+        // Given: open and done someday tasks. When: filtered by someday.
+        const tasks = await buildService().listTasks({ filter: "someday" });
+
+        // Then: only the open one
+        expect(tasks.map((t) => t.id)).toEqual(["someday-open"]);
+      });
+
+      test("planned → open status-2 tasks without a date", async () => {
+        // Given: dated and week/month-planned tasks. When: filtered by planned.
+        const tasks = await buildService().listTasks({ filter: "planned" });
+
+        // Then: only the undated, open one
+        expect(tasks.map((t) => t.id)).toEqual(["planned-week"]);
+      });
+
       test("trashed and recurring-template tasks are excluded from every list", async () => {
         // Given: a trashed task dated 2026-09-30 and a recurring template
         const service = buildService();

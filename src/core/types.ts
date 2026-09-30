@@ -249,7 +249,7 @@ export interface TokenRefreshResponse {
 // Query options for task listing
 export interface TaskQueryOptions {
   date?: string;
-  filter?: "today" | "inbox" | "done" | "all";
+  filter?: "today" | "inbox" | "someday" | "planned" | "done" | "all";
   project?: string;
   search?: string;
   limit?: number;

@@ -66,9 +66,12 @@ const GetTasksInputShape = {
     .optional()
     .describe("Specific date (YYYY-MM-DD) to show tasks for"),
   filter: z
-    .enum(["today", "inbox", "done", "all"])
+    .enum(["today", "inbox", "someday", "planned", "done", "all"])
     .optional()
-    .describe("Preset filter: today (scheduled today), inbox (open Inbox tasks), done (completed), all"),
+    .describe(
+      "Preset filter: today (scheduled today), inbox (open Inbox tasks), someday (open Someday tasks), " +
+        "planned (open tasks planned for a week/month without a date), done (completed), all",
+    ),
   project: z.string().optional().describe("Project/list ID to restrict results to"),
   includeNotes: z
     .boolean()
@@ -87,6 +90,7 @@ function registerGetTasks(server: McpServer, deps: TaskToolsDeps): void {
         "Examples:\n" +
         "- 'Show me today's tasks' → { filter: 'today' }\n" +
         "- 'List my inbox' → { filter: 'inbox' }\n" +
+        "- 'What did I put off to someday?' → { filter: 'someday' }\n" +
         "- '오늘 할 일 보여줘' → { filter: 'today' }",
       inputSchema: GetTasksInputShape,
       annotations: {

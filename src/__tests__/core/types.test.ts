@@ -127,7 +127,14 @@ describe("core/types", () => {
 
     test("filter accepts valid values", () => {
       // Given: valid filter values
-      const filters: NonNullable<TaskQueryOptions["filter"]>[] = ["today", "inbox", "done", "all"];
+      const filters: NonNullable<TaskQueryOptions["filter"]>[] = [
+        "today",
+        "inbox",
+        "someday",
+        "planned",
+        "done",
+        "all",
+      ];
 
       // Then: each is valid
       for (const f of filters) {

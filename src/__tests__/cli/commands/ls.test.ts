@@ -97,6 +97,20 @@ describe("buildQueryOptions", () => {
     expect(opts.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  test("--someday sets filter=someday", () => {
+    // Given: --someday. When: built. Then: filter='someday', date undefined.
+    const opts = buildQueryOptions({ inbox: false, someday: true, done: false, all: false, today: false }, now);
+    expect(opts.filter).toBe("someday");
+    expect(opts.date).toBeUndefined();
+  });
+
+  test("--planned sets filter=planned", () => {
+    // Given: --planned. When: built. Then: filter='planned', date undefined.
+    const opts = buildQueryOptions({ inbox: false, planned: true, done: false, all: false, today: false }, now);
+    expect(opts.filter).toBe("planned");
+    expect(opts.date).toBeUndefined();
+  });
+
   test("--inbox sets filter=inbox with no date", () => {
     // Given: --inbox. When: built. Then: filter='inbox', date undefined.
     const opts = buildQueryOptions({ inbox: true, done: false, all: false, today: false }, now);
