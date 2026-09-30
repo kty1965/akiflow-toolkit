@@ -12,8 +12,17 @@ export interface ApiResponse<T> {
   has_next_page?: boolean;
 }
 
-// Task status: 0=active, 1=done, 2=time-blocked
-export type TaskStatus = 0 | 1 | 2 | null;
+// Akiflow publishes no enum for `status`; these values are inferred from live
+// account data. Completion is tracked by `done`, independently of `status`.
+export const TASK_STATUS = {
+  INBOX: 1,
+  PLANNED: 2,
+  SOMEDAY: 7,
+  TRASHED: 10,
+  RECURRING_TEMPLATE: 11,
+} as const;
+
+export type TaskStatus = number | null;
 
 // Task (45+ fields — core fields explicit, rest extensible)
 export interface Task {
@@ -244,6 +253,7 @@ export interface TaskQueryOptions {
   project?: string;
   search?: string;
   limit?: number;
+  includeHidden?: boolean;
 }
 
 // Extracted token from browser (before conversion to Credentials)

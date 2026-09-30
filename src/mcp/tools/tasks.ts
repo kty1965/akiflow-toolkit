@@ -68,7 +68,7 @@ const GetTasksInputShape = {
   filter: z
     .enum(["today", "inbox", "done", "all"])
     .optional()
-    .describe("Preset filter: today (scheduled today), inbox (no date), done (completed), all"),
+    .describe("Preset filter: today (scheduled today), inbox (open Inbox tasks), done (completed), all"),
   project: z.string().optional().describe("Project/list ID to restrict results to"),
   includeNotes: z
     .boolean()

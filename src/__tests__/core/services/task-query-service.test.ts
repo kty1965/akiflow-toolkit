@@ -319,6 +319,63 @@ describe("TaskQueryService", () => {
       expect(tasks.map((t) => t.id)).toEqual(["a"]);
     });
 
+    describe("status-based filters", () => {
+      const statusFixtures = [
+        makeTask({ id: "inbox-open", status: 1 }),
+        makeTask({ id: "inbox-done", status: 1, done: true }),
+        makeTask({ id: "inbox-dated", status: 1, date: "2026-09-30" }),
+        makeTask({ id: "planned-dated", status: 2, date: "2026-09-30" }),
+        makeTask({ id: "planned-week", status: 2 }),
+        makeTask({ id: "planned-week-done", status: 2, done: true }),
+        makeTask({ id: "someday-open", status: 7 }),
+        makeTask({ id: "someday-done", status: 7, done: true }),
+        makeTask({ id: "trashed", status: 10, date: "2026-09-30" }),
+        makeTask({ id: "recurring-template", status: 11, title: null }),
+      ];
+
+      function buildService(): TaskQueryService {
+        const { port } = createStubHttp({
+          async getTasks() {
+            return { success: true, message: null, data: statusFixtures };
+          },
+        });
+        return new TaskQueryService({ auth: buildAuth(), http: port, logger: createLogger() });
+      }
+
+      test("inbox → open status-1 tasks without a date", async () => {
+        // Given: a mix of statuses. When: filtered by inbox.
+        const tasks = await buildService().listTasks({ filter: "inbox" });
+
+        // Then: done and dated status-1 tasks are excluded, as are other statuses
+        expect(tasks.map((t) => t.id)).toEqual(["inbox-open"]);
+      });
+
+      test("trashed and recurring-template tasks are excluded from every list", async () => {
+        // Given: a trashed task dated 2026-09-30 and a recurring template
+        const service = buildService();
+
+        // When: listed as all, by date, and as done
+        const all = await service.listTasks({ filter: "all" });
+        const byDate = await service.listTasks({ date: "2026-09-30" });
+        const done = await service.listTasks({ filter: "done" });
+
+        // Then: neither hidden status appears
+        for (const list of [all, byDate, done]) {
+          expect(list.map((t) => t.id)).not.toContain("trashed");
+          expect(list.map((t) => t.id)).not.toContain("recurring-template");
+        }
+        expect(byDate.map((t) => t.id)).toEqual(["inbox-dated", "planned-dated"]);
+      });
+
+      test("getTaskById still finds a trashed task", async () => {
+        // Given: a trashed task. When: looked up by id.
+        const task = await buildService().getTaskById("trashed");
+
+        // Then: it is returned so it can still be inspected
+        expect(task?.id).toBe("trashed");
+      });
+    });
+
     test("retries on 503 and eventually succeeds", async () => {
       // Given: first call fails with 503, second succeeds
       let attempts = 0;
