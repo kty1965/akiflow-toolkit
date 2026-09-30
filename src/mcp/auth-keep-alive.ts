@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// AuthKeepAlive — keeps a long-running process (MCP server) authenticated
+// AuthKeepAlive — keeps the long-running MCP server authenticated
 // while idle by waking just inside the proactive refresh window.
 // ---------------------------------------------------------------------------
 
-import type { LoggerPort } from "../ports/logger-port.ts";
-import type { Credentials } from "../types.ts";
-import { PROACTIVE_REFRESH_SKEW_MS } from "./auth-service.ts";
+import type { LoggerPort } from "@core/ports/logger-port.ts";
+import { PROACTIVE_REFRESH_SKEW_MS } from "@core/services/auth-service.ts";
+import type { Credentials } from "@core/types.ts";
 
 export const KEEP_ALIVE_MAX_INTERVAL_MS = 25 * 60 * 1000;
 export const KEEP_ALIVE_MIN_INTERVAL_MS = 60 * 1000;

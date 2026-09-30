@@ -7,10 +7,10 @@
 // ---------------------------------------------------------------------------
 
 import type { AppComponents } from "@composition";
-import { AuthKeepAlive } from "@core/services/auth-keep-alive.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import pkg from "../../package.json" with { type: "json" };
+import { AuthKeepAlive } from "./auth-keep-alive.ts";
 import { registerAuthStatusTool } from "./tools/auth-status.ts";
 import { registerCalendarTools } from "./tools/calendar.ts";
 import { registerMeetingTools } from "./tools/meetings.ts";

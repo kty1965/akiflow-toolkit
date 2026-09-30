@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { AuthSourceMissingError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
+import { PROACTIVE_REFRESH_SKEW_MS } from "@core/services/auth-service.ts";
+import type { Credentials } from "@core/types.ts";
 import {
   AuthKeepAlive,
   KEEP_ALIVE_MAX_INTERVAL_MS,
   KEEP_ALIVE_MIN_INTERVAL_MS,
   KEEP_ALIVE_RETRY_INTERVAL_MS,
-} from "@core/services/auth-keep-alive.ts";
-import { PROACTIVE_REFRESH_SKEW_MS } from "@core/services/auth-service.ts";
-import type { Credentials } from "@core/types.ts";
+} from "@mcp/auth-keep-alive.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -81,7 +81,7 @@ async function flush(): Promise<void> {
 
 describe("AuthKeepAlive", () => {
   describe("tick", () => {
-    test("fresh 30-minute token → next tick lands just inside the refresh window", async () => {
+    test("fresh 30-minute token → next tick capped at the 25-minute maximum", async () => {
       // Given: authenticate returns a token that expires in 30 minutes
       const expiresAt = NOW + 30 * 60 * 1000;
       const keepAlive = new AuthKeepAlive({
