@@ -47,13 +47,17 @@ export async function startMcpServer(components: AppComponents): Promise<void> {
 
   await server.connect(transport);
 
+  runUntilSignal(components, () => server.close());
+}
+
+export function runUntilSignal(components: AppComponents, close: () => Promise<void>): void {
   const keepAlive = new AuthKeepAlive({ auth: components.authService, logger: components.logger });
   keepAlive.start();
 
   const shutdown = async (signal: string): Promise<void> => {
     components.logger.info("MCP server shutdown", { signal });
     keepAlive.stop();
-    await server.close();
+    await close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
