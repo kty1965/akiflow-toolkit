@@ -11,6 +11,7 @@ import type { StoragePort } from "../ports/storage-port.ts";
 import type { AuthStatus, Credentials, ExtractedToken, TokenRefreshResponse } from "../types.ts";
 
 const FALLBACK_TTL_MS = 30 * 60 * 1000;
+export const PROACTIVE_REFRESH_SKEW_MS = 2 * 60 * 1000;
 
 export interface AuthServiceDeps {
   storage: StoragePort;
@@ -37,14 +38,16 @@ export class AuthService {
 
   async authenticate(): Promise<Credentials> {
     const stored = await this.deps.storage.loadCredentials();
-    if (stored && !this.isExpired(stored)) return stored;
+    if (stored && !this.isExpiringSoon(stored)) return stored;
 
     // An expired access token is the normal state after its 30-minute TTL, so
     // refresh before touching browser readers — headless callers (MCP server)
-    // have no browser to fall back to.
+    // have no browser to fall back to. Refreshing slightly early keeps an
+    // in-flight request from racing the expiry.
     if (stored) {
       const refreshed = await this.recoverTier1Refresh(stored);
       if (refreshed) return refreshed;
+      if (!this.isExpired(stored)) return stored;
     }
 
     for (const reader of this.deps.browserReaders) {
@@ -247,6 +250,10 @@ export class AuthService {
 
   private isExpired(creds: Credentials): boolean {
     return creds.expiresAt <= Date.now();
+  }
+
+  private isExpiringSoon(creds: Credentials): boolean {
+    return creds.expiresAt - PROACTIVE_REFRESH_SKEW_MS <= Date.now();
   }
 
   private async tokensToCredentials(

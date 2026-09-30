@@ -3,7 +3,7 @@ import { AuthExpiredError, AuthSourceMissingError, BrowserDataError, NetworkErro
 import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type { StoragePort } from "@core/ports/storage-port.ts";
-import { AuthService, type AuthServiceDeps } from "@core/services/auth-service.ts";
+import { AuthService, type AuthServiceDeps, PROACTIVE_REFRESH_SKEW_MS } from "@core/services/auth-service.ts";
 import type { Credentials, ExtractedToken, TokenRefreshResponse } from "@core/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -251,6 +251,96 @@ describe("AuthService", () => {
       expect(creds.accessToken).toBe("fresh_from_browser");
       expect(creds.source).toBe("indexeddb");
       expect(storage.state.saveCalls.length).toBe(1);
+    });
+  });
+
+  describe("authenticate — proactive refresh", () => {
+    test("creds expiring within the skew window → refresh before expiry, skip browser", async () => {
+      // Given: stored creds still valid but only 60s from expiry
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const reader = new StubReader({ type: "null" });
+      const refresher = createRefresher({ access_token: "proactively_refreshed" });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: refreshed early and saved, browser untouched
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("proactively_refreshed");
+      expect(storage.state.saveCalls.length).toBe(1);
+    });
+
+    test("creds outside the skew window → no refresh", async () => {
+      // Given: stored creds with 5 minutes left
+      const storage = createStorage(
+        makeCredentials({ expiresAt: Date.now() + PROACTIVE_REFRESH_SKEW_MS + 3 * 60 * 1000 }),
+      );
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: stored creds returned as-is
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("expiring soon, refresh fails → still-valid stored creds returned, browser untouched", async () => {
+      // Given: stored creds 60s from expiry whose refresh is rejected; readers would fail
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const reader = new StubReader({ type: "throw", err: new BrowserDataError("no browser") });
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("refresh rejected", 500) };
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: falls back to the still-valid token instead of throwing AuthSourceMissingError
+      expect(refresher.state.calls.length).toBe(1);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(storage.state.saveCalls.length).toBe(0);
+    });
+
+    test("expiring soon without refresh token (cookie source) → still-valid stored creds returned", async () => {
+      // Given: cookie-sourced creds 60s from expiry, no readers available (headless)
+      const storage = createStorage(
+        makeCredentials({ expiresAt: Date.now() + 60 * 1000, refreshToken: "", source: "cookie" }),
+      );
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: nothing to refresh with, but the token is still usable
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("getStatus stays authenticated inside the skew window", async () => {
+      // Given: stored creds 60s from expiry
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const { service } = buildService({ storage: storage.port });
+
+      // When: getStatus
+      const status = await service.getStatus();
+
+      // Then: skew only affects refresh timing, not reported validity
+      expect(status.isAuthenticated).toBe(true);
+      expect(status.isExpired).toBe(false);
     });
   });
 
