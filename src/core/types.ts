@@ -12,8 +12,17 @@ export interface ApiResponse<T> {
   has_next_page?: boolean;
 }
 
-// Task status: 0=active, 1=done, 2=time-blocked
-export type TaskStatus = 0 | 1 | 2 | null;
+// Akiflow publishes no enum for `status`; these values are inferred from live
+// account data. Completion is tracked by `done`, independently of `status`.
+export const TASK_STATUS = {
+  INBOX: 1,
+  PLANNED: 2,
+  SOMEDAY: 7,
+  TRASHED: 10,
+  RECURRING_TEMPLATE: 11,
+} as const;
+
+export type TaskStatus = number | null;
 
 // Task (45+ fields — core fields explicit, rest extensible)
 export interface Task {
@@ -39,12 +48,14 @@ export interface Task {
   position: number | null;
   due_date: string | null; // YYYY-MM-DD — deadline, distinct from `date` (scheduled day)
   links: string[];
+  plan_unit?: string | null; // WEEK | MONTH when planned without a date
 }
 
 // Create payload — H1: client-side UUID required for PATCH UPSERT
 export interface CreateTaskPayload {
   id: string; // crypto.randomUUID() — resolves issue H1
   title: string;
+  status?: TaskStatus;
   date?: string;
   datetime?: string;
   duration?: number;
@@ -240,10 +251,11 @@ export interface TokenRefreshResponse {
 // Query options for task listing
 export interface TaskQueryOptions {
   date?: string;
-  filter?: "today" | "inbox" | "done" | "all";
+  filter?: "today" | "inbox" | "someday" | "planned" | "done" | "all";
   project?: string;
   search?: string;
   limit?: number;
+  includeHidden?: boolean;
 }
 
 // Extracted token from browser (before conversion to Credentials)
