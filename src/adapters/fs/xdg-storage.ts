@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Credentials, StoragePort } from "@core/ports/storage-port.ts";
@@ -26,7 +26,11 @@ export class XdgStorage implements StoragePort {
   async saveCredentials(creds: Credentials): Promise<void> {
     await mkdir(this.configDir, { recursive: true, mode: 0o700 });
     const data = JSON.stringify(creds, null, 2);
-    await writeFile(this.authFile, data, { encoding: "utf-8", mode: 0o600 });
+    // The CLI and the MCP server share this file; write-then-rename keeps a
+    // concurrent reader from seeing a truncated file and dropping the session.
+    const tmpFile = `${this.authFile}.${process.pid}.tmp`;
+    await writeFile(tmpFile, data, { encoding: "utf-8", mode: 0o600 });
+    await rename(tmpFile, this.authFile);
   }
 
   async loadCredentials(): Promise<Credentials | null> {

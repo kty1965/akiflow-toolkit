@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { XdgStorage } from "@adapters/fs/xdg-storage.ts";
@@ -43,6 +43,20 @@ describe("XdgStorage", () => {
 
       // Then: loaded credentials match the saved ones exactly
       expect(loaded).toEqual(creds);
+    });
+  });
+
+  describe("atomic save", () => {
+    test("overwriting leaves only auth.json behind (no temp file)", async () => {
+      // Given: credentials already saved once
+      await storage.saveCredentials(sampleCredentials);
+
+      // When: saved again with a rotated token
+      await storage.saveCredentials({ ...sampleCredentials, accessToken: "rotated" });
+
+      // Then: the file holds the new token and the temp file was renamed away
+      expect((await storage.loadCredentials())?.accessToken).toBe("rotated");
+      expect(await readdir(tempDir)).toEqual(["auth.json"]);
     });
   });
 
