@@ -343,6 +343,59 @@ describe("TaskCommandService", () => {
     });
   });
 
+  describe("status sync with date changes", () => {
+    async function payloadOf(run: (service: TaskCommandService) => Promise<unknown>): Promise<UpdateTaskPayload> {
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+      await run(service);
+      return calls[0].tasks[0] as UpdateTaskPayload;
+    }
+
+    test("createTask without a date → status 1 (Inbox)", async () => {
+      // Given/When: a task created without a date
+      const payload = await payloadOf((s) => s.createTask({ title: "undated" }));
+
+      // Then: it is filed in the Inbox rather than left with a null status
+      expect(payload.status).toBe(1);
+    });
+
+    test("createTask with a date → status 2 (Planned)", async () => {
+      // Given/When: a task created with a date
+      const payload = await payloadOf((s) => s.createTask({ title: "dated", date: "2026-10-01" }));
+
+      // Then: it is filed as planned
+      expect(payload.status).toBe(2);
+    });
+
+    test("scheduleTask → status 2 (Planned)", async () => {
+      // Given/When: an inbox task is scheduled
+      const payload = await payloadOf((s) => s.scheduleTask("id-1", "2026-10-01"));
+
+      // Then: it leaves the Inbox
+      expect(payload.status).toBe(2);
+    });
+
+    test("unscheduleTask → status 1 (Inbox)", async () => {
+      // Given/When: a scheduled task is unscheduled
+      const payload = await payloadOf((s) => s.unscheduleTask("id-1"));
+
+      // Then: it returns to the Inbox
+      expect(payload.status).toBe(1);
+    });
+
+    test("updateTask follows the date: null → 1, date → 2, untouched → omitted", async () => {
+      // Given/When: updates clearing, setting, and not touching the date
+      const cleared = await payloadOf((s) => s.updateTask("id-1", { date: null }));
+      const set = await payloadOf((s) => s.updateTask("id-1", { date: "2026-10-01" }));
+      const untouched = await payloadOf((s) => s.updateTask("id-1", { title: "t" }));
+
+      // Then: status tracks the date only when the date changes
+      expect(cleared.status).toBe(1);
+      expect(set.status).toBe(2);
+      expect(untouched.status).toBeUndefined();
+    });
+  });
+
   describe("completeTask", () => {
     test("sets done=true and leaves status untouched", async () => {
       // Given: a capturing port

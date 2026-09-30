@@ -243,11 +243,11 @@ function applyFilters(tasks: Task[], options: TaskQueryOptions): Task[] {
   if (options.filter === "today" && options.date) {
     out = out.filter((t) => t.date === options.date);
   } else if (options.filter === "inbox") {
-    out = out.filter((t) => t.status === TASK_STATUS.INBOX && t.date === null && !t.done);
+    out = out.filter((t) => (t.status === TASK_STATUS.INBOX || t.status === null) && t.date === null && !t.done);
   } else if (options.filter === "someday") {
     out = out.filter((t) => t.status === TASK_STATUS.SOMEDAY && !t.done);
   } else if (options.filter === "planned") {
-    out = out.filter((t) => t.status === TASK_STATUS.PLANNED && t.date === null && !t.done);
+    out = out.filter((t) => t.status === TASK_STATUS.PLANNED && t.date === null && t.plan_unit != null && !t.done);
   } else if (options.filter === "done") {
     out = out.filter((t) => t.done);
   } else if (options.date) {

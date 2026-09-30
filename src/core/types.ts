@@ -48,12 +48,14 @@ export interface Task {
   position: number | null;
   due_date: string | null; // YYYY-MM-DD — deadline, distinct from `date` (scheduled day)
   links: string[];
+  plan_unit?: string | null; // WEEK | MONTH when planned without a date
 }
 
 // Create payload — H1: client-side UUID required for PATCH UPSERT
 export interface CreateTaskPayload {
   id: string; // crypto.randomUUID() — resolves issue H1
   title: string;
+  status?: TaskStatus;
   date?: string;
   datetime?: string;
   duration?: number;

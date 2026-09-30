@@ -325,8 +325,10 @@ describe("TaskQueryService", () => {
         makeTask({ id: "inbox-done", status: 1, done: true }),
         makeTask({ id: "inbox-dated", status: 1, date: "2026-09-30" }),
         makeTask({ id: "planned-dated", status: 2, date: "2026-09-30" }),
-        makeTask({ id: "planned-week", status: 2 }),
-        makeTask({ id: "planned-week-done", status: 2, done: true }),
+        makeTask({ id: "planned-week", status: 2, plan_unit: "WEEK" }),
+        makeTask({ id: "planned-week-done", status: 2, plan_unit: "WEEK", done: true }),
+        makeTask({ id: "planned-undated-no-plan", status: 2 }),
+        makeTask({ id: "unclassified", status: null }),
         makeTask({ id: "someday-open", status: 7 }),
         makeTask({ id: "someday-done", status: 7, done: true }),
         makeTask({ id: "trashed", status: 10, date: "2026-09-30" }),
@@ -346,8 +348,9 @@ describe("TaskQueryService", () => {
         // Given: a mix of statuses. When: filtered by inbox.
         const tasks = await buildService().listTasks({ filter: "inbox" });
 
-        // Then: done and dated status-1 tasks are excluded, as are other statuses
-        expect(tasks.map((t) => t.id)).toEqual(["inbox-open"]);
+        // Then: done and dated status-1 tasks are excluded; a task never given a
+        // status (as created by older toolkit versions) still counts as inbox
+        expect(tasks.map((t) => t.id)).toEqual(["inbox-open", "unclassified"]);
       });
 
       test("someday → open status-7 tasks", async () => {
@@ -358,11 +361,11 @@ describe("TaskQueryService", () => {
         expect(tasks.map((t) => t.id)).toEqual(["someday-open"]);
       });
 
-      test("planned → open status-2 tasks without a date", async () => {
-        // Given: dated and week/month-planned tasks. When: filtered by planned.
+      test("planned → open week/month-planned tasks", async () => {
+        // Given: dated, week-planned, and undated-without-plan tasks. When: filtered by planned.
         const tasks = await buildService().listTasks({ filter: "planned" });
 
-        // Then: only the undated, open one
+        // Then: only the open one with a plan_unit
         expect(tasks.map((t) => t.id)).toEqual(["planned-week"]);
       });
 

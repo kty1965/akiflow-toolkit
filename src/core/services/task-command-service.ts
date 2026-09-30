@@ -8,16 +8,17 @@ import { ApiSchemaError } from "../errors/index.ts";
 import type { AkiflowHttpPort, CreatedTaskFromActionItem } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type {
-  CalendarEvent,
-  CreateEventInput,
-  CreateTaskPayload,
-  CreateTimeSlotInput,
-  Task,
-  TimeSlot,
-  UpdateEventInput,
-  UpdateTaskPayload,
-  UpdateTimeSlotInput,
+import {
+  type CalendarEvent,
+  type CreateEventInput,
+  type CreateTaskPayload,
+  type CreateTimeSlotInput,
+  TASK_STATUS,
+  type Task,
+  type TimeSlot,
+  type UpdateEventInput,
+  type UpdateTaskPayload,
+  type UpdateTimeSlotInput,
 } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
@@ -78,6 +79,7 @@ export class TaskCommandService {
     const payload: CreateTaskPayload = {
       id: crypto.randomUUID(),
       title: input.title,
+      status: input.date || input.datetime ? TASK_STATUS.PLANNED : TASK_STATUS.INBOX,
       global_created_at: now,
       global_updated_at: now,
     };
@@ -97,7 +99,10 @@ export class TaskCommandService {
       global_updated_at: new Date().toISOString(),
     };
     if (patch.title !== undefined) payload.title = patch.title;
-    if (patch.date !== undefined) payload.date = patch.date;
+    if (patch.date !== undefined) {
+      payload.date = patch.date;
+      payload.status = patch.date === null ? TASK_STATUS.INBOX : TASK_STATUS.PLANNED;
+    }
     if (patch.datetime !== undefined) payload.datetime = patch.datetime;
     if (patch.duration !== undefined) payload.duration = patch.duration;
     if (patch.projectId !== undefined) payload.listId = patch.projectId;
@@ -155,6 +160,7 @@ export class TaskCommandService {
       global_updated_at: new Date().toISOString(),
       date,
       datetime: time ? `${date}T${time}:00` : null,
+      status: TASK_STATUS.PLANNED,
     };
     return this.patchSingle(payload, "scheduleTask");
   }
@@ -165,6 +171,7 @@ export class TaskCommandService {
       global_updated_at: new Date().toISOString(),
       date: null,
       datetime: null,
+      status: TASK_STATUS.INBOX,
     };
     return this.patchSingle(payload, "unscheduleTask");
   }
