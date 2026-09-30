@@ -9,6 +9,8 @@ Type=simple
 ExecStart=%h/.local/bin/af --mcp --http
 Restart=on-failure
 RestartSec=5
+# The startup "listening" line is info level; --mcp defaults to warn.
+Environment=LOG_LEVEL=info
 # Environment=AF_MCP_HTTP_PORT=7823
 
 [Install]
