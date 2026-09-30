@@ -14,6 +14,11 @@ export const MCP_HTTP_DEFAULT_HOST = "127.0.0.1";
 export const MCP_HTTP_DEFAULT_PORT = 7823;
 export const MCP_HTTP_PATH = "/mcp";
 
+export function resolveMcpHttpPort(env: NodeJS.ProcessEnv = process.env): number {
+  const port = Number(env.AF_MCP_HTTP_PORT);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : MCP_HTTP_DEFAULT_PORT;
+}
+
 export interface McpHttpServerOptions {
   hostname?: string;
   port?: number;
@@ -49,7 +54,7 @@ export function createMcpHttpHandler(components: AppComponents, token: string): 
 
 export async function startMcpHttpServer(components: AppComponents, options: McpHttpServerOptions = {}): Promise<void> {
   const hostname = options.hostname ?? MCP_HTTP_DEFAULT_HOST;
-  const port = options.port ?? MCP_HTTP_DEFAULT_PORT;
+  const port = options.port ?? resolveMcpHttpPort();
   const token = await readOrCreateHttpToken(components.config.configDir);
   const handler = createMcpHttpHandler(components, token);
 

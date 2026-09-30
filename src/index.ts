@@ -7,8 +7,7 @@ if (process.argv.includes("--mcp")) {
   const components = composeApp();
   if (process.argv.includes("--http")) {
     const { startMcpHttpServer } = await import("./mcp/http-server.ts");
-    const port = process.env.AF_MCP_HTTP_PORT ? Number(process.env.AF_MCP_HTTP_PORT) : undefined;
-    await startMcpHttpServer(components, { port });
+    await startMcpHttpServer(components);
   } else {
     const { startMcpServer } = await import("./mcp/server.ts");
     await startMcpServer(components);
