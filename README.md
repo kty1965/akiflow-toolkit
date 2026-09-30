@@ -132,6 +132,36 @@ af add "New task" --today
 af setup claude-code
 ```
 
+### Shared MCP server (HTTP)
+
+`af --mcp` (stdio) starts a separate server for every Claude Code session. To share one
+server — one auth keep-alive, one token refresh — across all sessions, run the HTTP mode:
+
+```bash
+# 1. Run the server (127.0.0.1:7823/mcp; override with AF_MCP_HTTP_PORT)
+af --mcp --http
+
+# 2. Point Claude Code at it (writes { type: "http", url, headers } to ~/.claude.json)
+af setup claude-code --http
+```
+
+Requests must carry `Authorization: Bearer <token>`. The token is generated on first start
+at `~/.config/akiflow/mcp-http-token` (mode 0600) and copied into the Claude Code config by
+`setup --http`.
+
+To keep the server running on Linux, install the systemd user unit:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp contrib/systemd/akiflow-mcp.service ~/.config/systemd/user/
+# edit ExecStart if af is not at ~/.local/bin/af
+systemctl --user daemon-reload
+systemctl --user enable --now akiflow-mcp
+journalctl --user -u akiflow-mcp -f      # logs
+```
+
+User services stop at logout unless lingering is enabled (`loginctl enable-linger $USER`).
+
 ### Verifying authentication
 
 After `af auth`, you can confirm the CLI is talking to the real Akiflow API at four levels of depth:
