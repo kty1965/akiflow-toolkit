@@ -1,3 +1,20 @@
+# [1.7.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.6.1...v1.7.0) (2026-09-30)
+
+
+### Bug Fixes
+
+* **auth:** refresh expired access token before falling back to browser readers ([ddbada7](https://github.com/kty1965/akiflow-toolkit/commit/ddbada7082373e56c37ed3e2d9cac3c005f81270))
+* **setup:** keep the claude config owner-only once it holds the http token ([b18524e](https://github.com/kty1965/akiflow-toolkit/commit/b18524ec06c313a4081ae0cc7932b65441812968))
+
+
+### Features
+
+* **auth:** refresh access token proactively before it expires ([13fbca7](https://github.com/kty1965/akiflow-toolkit/commit/13fbca7ec33abe93fa7def7f653cbb8892088f76))
+* **auth:** serialize token refresh across processes with auth.json.lock ([21f509d](https://github.com/kty1965/akiflow-toolkit/commit/21f509dad4622450f924ed9a76912b8d5ad1467e))
+* **mcp:** keep auth alive while the mcp server is idle ([f554e62](https://github.com/kty1965/akiflow-toolkit/commit/f554e62e7d1e844054bf66efb64335e4d8d48a14))
+* **mcp:** serve MCP over streamable http with af --mcp --http ([9f45e53](https://github.com/kty1965/akiflow-toolkit/commit/9f45e5387d6433e9e321a18c4da5ad7a5391fcb2))
+* **setup:** register the shared http server with af setup claude-code --http ([2a40752](https://github.com/kty1965/akiflow-toolkit/commit/2a4075290ffacbc343000616c103fe261987bc05))
+
 ## [1.6.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.6.0...v1.6.1) (2026-08-31)
 
 
