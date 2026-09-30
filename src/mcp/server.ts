@@ -10,6 +10,7 @@ import type { AppComponents } from "@composition";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import pkg from "../../package.json" with { type: "json" };
+import { AuthKeepAlive } from "./auth-keep-alive.ts";
 import { registerAuthStatusTool } from "./tools/auth-status.ts";
 import { registerCalendarTools } from "./tools/calendar.ts";
 import { registerMeetingTools } from "./tools/meetings.ts";
@@ -46,9 +47,17 @@ export async function startMcpServer(components: AppComponents): Promise<void> {
 
   await server.connect(transport);
 
+  runUntilSignal(components, () => server.close());
+}
+
+export function runUntilSignal(components: AppComponents, close: () => Promise<void>): void {
+  const keepAlive = new AuthKeepAlive({ auth: components.authService, logger: components.logger });
+  keepAlive.start();
+
   const shutdown = async (signal: string): Promise<void> => {
     components.logger.info("MCP server shutdown", { signal });
-    await server.close();
+    keepAlive.stop();
+    await close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

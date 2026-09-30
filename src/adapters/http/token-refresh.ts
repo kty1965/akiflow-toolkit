@@ -10,6 +10,7 @@ import { type RetryPolicy, withRetry } from "@core/utils/retry.ts";
 
 const TOKEN_URL = "https://web.akiflow.com/oauth/refreshToken";
 const CLIENT_ID = "10";
+const REFRESH_TIMEOUT_MS = 10_000;
 
 const refreshRetryPolicy: RetryPolicy = {
   maxAttempts: 2,
@@ -26,6 +27,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRef
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: CLIENT_ID, refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     });
 
     if (res.status === 401 || res.status === 403) {

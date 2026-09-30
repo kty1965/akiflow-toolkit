@@ -1,0 +1,17 @@
+[Unit]
+Description=Akiflow MCP server (streamable http, shared by all MCP clients)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# systemd --user does not see your shell PATH; point at the af binary explicitly.
+ExecStart=%h/.local/bin/af --mcp --http
+Restart=on-failure
+RestartSec=5
+# The startup "listening" line is info level; --mcp defaults to warn.
+Environment=LOG_LEVEL=info
+# Environment=AF_MCP_HTTP_PORT=7823
+
+[Install]
+WantedBy=default.target

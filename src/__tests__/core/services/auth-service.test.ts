@@ -3,7 +3,7 @@ import { AuthExpiredError, AuthSourceMissingError, BrowserDataError, NetworkErro
 import type { BrowserDataPort } from "@core/ports/browser-data-port.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 import type { StoragePort } from "@core/ports/storage-port.ts";
-import { AuthService, type AuthServiceDeps } from "@core/services/auth-service.ts";
+import { AuthService, type AuthServiceDeps, PROACTIVE_REFRESH_SKEW_MS } from "@core/services/auth-service.ts";
 import type { Credentials, ExtractedToken, TokenRefreshResponse } from "@core/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -163,9 +163,71 @@ describe("AuthService", () => {
       expect(storage.state.saveCalls.length).toBe(0);
     });
 
-    test("expired stored creds → fall through to Tier 2", async () => {
-      // Given: storage has expired credentials and a browser reader returns a token
+    test("expired stored creds with refresh token → refresh, save rotated token, skip browser", async () => {
+      // Given: storage has expired credentials with a refresh token
       const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000 }));
+      const reader = new StubReader({ type: "null" });
+      const refresher = createRefresher({
+        access_token: "refreshed_from_disk",
+        refresh_token: "rotated_refresh_token",
+      });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: stored refresh token was exchanged and browser readers were never touched
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("refreshed_from_disk");
+      expect(creds.refreshToken).toBe("rotated_refresh_token");
+      expect(creds.expiresAt).toBeGreaterThan(Date.now());
+      expect(storage.state.saveCalls.length).toBe(1);
+      expect(storage.state.current?.refreshToken).toBe("rotated_refresh_token");
+    });
+
+    test("expired stored creds, refresh fails → fall through to browser readers", async () => {
+      // Given: expired stored creds whose refresh token is rejected; a browser reader has a cookie token
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000 }));
+      const reader = new StubReader({
+        type: "ok",
+        value: { accessToken: "browser_access", browser: "Chrome", expiresAt: Math.floor(Date.now() / 1000) + 600 },
+      });
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("refresh rejected", 401) };
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: refresh was attempted once, then the browser reader supplied the creds
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(1);
+      expect(creds.accessToken).toBe("browser_access");
+    });
+
+    test("expired stored creds without refresh token, no readers → AuthSourceMissingError", async () => {
+      // Given: expired stored creds with no refresh token (cookie-sourced) and no browser readers
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000, refreshToken: "" }));
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When / Then: nothing to refresh with and nothing to read from
+      await expect(service.authenticate()).rejects.toBeInstanceOf(AuthSourceMissingError);
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("expired stored creds without refresh token → fall through to Tier 2", async () => {
+      // Given: storage has expired credentials (no refresh token) and a browser reader returns a token
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() - 1000, refreshToken: "" }));
       const reader = new StubReader({
         type: "ok",
         value: {
@@ -189,6 +251,96 @@ describe("AuthService", () => {
       expect(creds.accessToken).toBe("fresh_from_browser");
       expect(creds.source).toBe("indexeddb");
       expect(storage.state.saveCalls.length).toBe(1);
+    });
+  });
+
+  describe("authenticate — proactive refresh", () => {
+    test("creds expiring within the skew window → refresh before expiry, skip browser", async () => {
+      // Given: stored creds still valid but only 60s from expiry
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const reader = new StubReader({ type: "null" });
+      const refresher = createRefresher({ access_token: "proactively_refreshed" });
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: refreshed early and saved, browser untouched
+      expect(refresher.state.calls).toEqual(["stored_refresh_token"]);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("proactively_refreshed");
+      expect(storage.state.saveCalls.length).toBe(1);
+    });
+
+    test("creds outside the skew window → no refresh", async () => {
+      // Given: stored creds with 5 minutes left
+      const storage = createStorage(
+        makeCredentials({ expiresAt: Date.now() + PROACTIVE_REFRESH_SKEW_MS + 3 * 60 * 1000 }),
+      );
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: stored creds returned as-is
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("expiring soon, refresh fails → still-valid stored creds returned, browser untouched", async () => {
+      // Given: stored creds 60s from expiry whose refresh is rejected; readers would fail
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const reader = new StubReader({ type: "throw", err: new BrowserDataError("no browser") });
+      const refresher = createRefresher();
+      refresher.state.errorOnCall = { at: 1, err: new NetworkError("refresh rejected", 500) };
+      const { service } = buildService({
+        storage: storage.port,
+        browserReaders: [reader],
+        refreshAccessToken: refresher.fn,
+      });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: falls back to the still-valid token instead of throwing AuthSourceMissingError
+      expect(refresher.state.calls.length).toBe(1);
+      expect(reader.calls).toBe(0);
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(storage.state.saveCalls.length).toBe(0);
+    });
+
+    test("expiring soon without refresh token (cookie source) → still-valid stored creds returned", async () => {
+      // Given: cookie-sourced creds 60s from expiry, no readers available (headless)
+      const storage = createStorage(
+        makeCredentials({ expiresAt: Date.now() + 60 * 1000, refreshToken: "", source: "cookie" }),
+      );
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: nothing to refresh with, but the token is still usable
+      expect(creds.accessToken).toBe("stored_access_token");
+      expect(refresher.state.calls.length).toBe(0);
+    });
+
+    test("getStatus stays authenticated inside the skew window", async () => {
+      // Given: stored creds 60s from expiry
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const { service } = buildService({ storage: storage.port });
+
+      // When: getStatus
+      const status = await service.getStatus();
+
+      // Then: skew only affects refresh timing, not reported validity
+      expect(status.isAuthenticated).toBe(true);
+      expect(status.isExpired).toBe(false);
     });
   });
 
@@ -568,8 +720,8 @@ describe("AuthService", () => {
       expect(refresher.state.calls.length).toBe(1);
     });
 
-    test("Tier 2 recovery: refresh fails, disk reload produces fresh creds → retry succeeds", async () => {
-      // Given: valid stored creds at start; refresh throws (expired refresh token);
+    test("parallel refresh already on disk → adopted without spending the refresh token", async () => {
+      // Given: valid stored creds at start; refresh would throw (refresh token already rotated);
       //        a parallel process "writes" new creds to disk between attempts.
       const initial = makeCredentials({ accessToken: "stale", refreshToken: "stale_refresh" });
       const parallelUpdate = makeCredentials({
@@ -604,10 +756,10 @@ describe("AuthService", () => {
       // When: withAuth runs
       const result = await service.withAuth(op);
 
-      // Then: retry used the parallel-written token (Tier 2)
+      // Then: retry used the parallel-written token, no refresh request sent
       expect(result).toBe("parallel_written");
       expect(attempts).toBe(2);
-      expect(refresher.state.calls.length).toBe(1);
+      expect(refresher.state.calls.length).toBe(0);
     });
 
     test("Tier 3 recovery: refresh fails, disk unchanged, browser reader produces new creds → retry succeeds", async () => {
@@ -688,6 +840,57 @@ describe("AuthService", () => {
       expect(r1).toBe("shared_refreshed");
       expect(r2).toBe("shared_refreshed");
       expect(refresher.state.calls.length).toBe(1);
+    });
+
+    test("refresh runs inside the storage refresh lock", async () => {
+      // Given: expiring creds and a storage that records lock usage
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const events: string[] = [];
+      storage.port.withRefreshLock = async (fn) => {
+        events.push("lock");
+        try {
+          return await fn();
+        } finally {
+          events.push("unlock");
+        }
+      };
+      const refresher = createRefresher();
+      const refreshFn = async (token: string) => {
+        events.push("refresh");
+        return refresher.fn(token);
+      };
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refreshFn });
+
+      // When: authenticate
+      await service.authenticate();
+
+      // Then: the refresh request happened between lock and unlock
+      expect(events).toEqual(["lock", "refresh", "unlock"]);
+    });
+
+    test("refresh token rotated on disk by another process → refresh with the disk token", async () => {
+      // Given: memory holds creds A; while waiting for the lock another process
+      //        rotated the refresh token, but its access token is also expiring
+      const inMemory = makeCredentials({ expiresAt: Date.now() + 60 * 1000 });
+      const rotated = makeCredentials({
+        accessToken: "other_process_access",
+        refreshToken: "rotated_refresh_token",
+        expiresAt: Date.now() + 60 * 1000,
+      });
+      const storage = createStorage(inMemory);
+      storage.port.withRefreshLock = async (fn) => {
+        storage.state.current = rotated;
+        return fn();
+      };
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: the rotated token was spent, not the stale in-memory one
+      expect(refresher.state.calls).toEqual(["rotated_refresh_token"]);
+      expect(creds.accessToken).toBe("refreshed_access_token");
     });
   });
 

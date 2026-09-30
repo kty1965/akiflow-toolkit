@@ -10,19 +10,21 @@ Unofficial CLI and MCP server for [Akiflow](https://akiflow.com), enabling termi
 
 **Alpha** — Published to npm as `akiflow-toolkit`. Requires **[Bun](https://bun.sh) 1.1+** runtime.
 
-## Planned Features
+## Features
 
 - **CLI** (`af`): Task management from terminal — add, list, complete, schedule, projects, calendar
-- **MCP Server** (`af --mcp`): AI agent integration via Model Context Protocol
-- **Auto Authentication**: Extracts tokens from browser data (IndexedDB, cookies) — no manual DevTools copy
-- **Token Auto-Recovery**: 3-tier recovery when tokens expire (refresh → disk reload → browser re-extract)
+- **MCP Server**: AI agent integration via Model Context Protocol
+  - `af --mcp` — stdio, one server per editor session
+  - `af --mcp --http` — one shared Streamable HTTP server for every session ([details](#shared-mcp-server-http))
+- **Auto Authentication**: Extracts tokens from browser data (IndexedDB, cookies) on macOS, or opens a Chrome login window via CDP — no manual DevTools copy
+- **Token Auto-Recovery**: refreshes the access token 2 minutes before it expires, keeps a long-running MCP server authenticated while idle, and on a 401 falls back through refresh → disk reload → browser re-extract. Refreshes are serialized across processes (`auth.json.lock`) so the CLI and the MCP server don't refresh at the same time.
 - **Cross-browser**: Chrome, Arc, Brave, Edge, Safari support (macOS)
 
 ## Architecture
 
 Key decisions are documented as Architecture Decision Records (ADRs):
 
-- [ADR Index](./docs/adr/README.md) — All 15 ADRs
+- [ADR Index](./docs/adr/README.md) — All 16 ADRs
 - Highlights: Bun runtime, Hexagonal (Ports & Adapters), Outcome-first MCP Tools, semantic-release, Test Diamond
 
 ## Runtime Requirement — **Bun Only**
@@ -60,8 +62,8 @@ af --help
 | Platform | Runtime | CLI core | MCP server | Auto auth (browser) | Status |
 |----------|---------|----------|-----------|---------------------|--------|
 | **macOS** (arm64/x64) | Bun 1.1+ | ✅ | ✅ | ✅ Chrome/Arc/Brave/Edge/Safari | **Fully supported** |
-| **Linux** (x64/arm64) | Bun 1.1+ | ✅ | ✅ | ❌ (manual `af auth` only) | **Partial** — see [docs/tasks/linux-support.md](./docs/tasks/linux-support.md) |
-| **Windows** (x64) | Bun 1.1+ | ✅ | ✅ | ❌ (manual `af auth` only) | **Partial** — see [docs/tasks/windows-support.md](./docs/tasks/windows-support.md) |
+| **Linux** (x64/arm64) | Bun 1.1+ | ✅ | ✅ | ⚠️ CDP login window (no cookie extraction) | **Partial** — see [docs/tasks/linux-support.md](./docs/tasks/linux-support.md) |
+| **Windows** (x64) | Bun 1.1+ | ✅ | ✅ | ❌ (`af auth --manual` only) | **Partial** — see [docs/tasks/windows-support.md](./docs/tasks/windows-support.md) |
 
 ### macOS
 
@@ -75,20 +77,23 @@ af ls
 
 ### Linux
 
-CLI 및 MCP는 정상 동작합니다. Chrome cookie 자동 추출은 미구현(libsecret 미연동)이므로 수동 인증을 사용합니다.
+CLI 및 MCP는 정상 동작합니다. Chrome cookie 자동 추출은 미구현(libsecret 미연동)이지만, `af auth` 가
+Chrome/Chromium 을 CDP 모드로 띄워 로그인 창을 열고 토큰을 가져옵니다. 이후 갱신은 refresh token 으로 자동 처리됩니다.
 
 ```bash
 bun install -g akiflow-toolkit
 
-# 수동 인증: Akiflow 웹 로그인 후 DevTools → Network → request headers에서
-# Bearer <JWT>를 복사해 붙여넣기
+# Chrome/Chromium 로그인 창이 열림 → Akiflow 로그인 → 토큰 저장
 af auth
+# 브라우저를 띄울 수 없는 환경(SSH 등)에서는 refresh token 을 직접 입력
+# af auth --manual < refresh-token.txt   # refresh token 을 stdin 으로 전달
 
 af ls
 ```
 
 제약 사항:
-- Chrome cookie 기반 auto-auth 미지원
+- Chrome cookie 기반 auto-auth 미지원 (CDP 로그인 창 또는 `af auth --manual`)
+- CDP 로그인에는 데스크톱 세션과 `google-chrome`/`chromium` 이 필요
 - Safari 관련 기능 없음 (Apple 전용 브라우저)
 
 ### Windows
@@ -98,7 +103,7 @@ CLI 및 MCP는 동작합니다. DPAPI(Windows 쿠키 암호화) 미연동으로 
 PowerShell에서:
 ```powershell
 bun install -g akiflow-toolkit
-af auth        # 수동 입력
+Get-Content refresh-token.txt | af auth --manual   # refresh token 을 stdin 으로 전달
 af ls
 ```
 
@@ -118,8 +123,6 @@ bun run dev
 
 ## Quick Start
 
-> Coming soon after initial implementation.
-
 ```bash
 # Authenticate (auto-extracts from browser)
 af auth
@@ -128,9 +131,40 @@ af auth
 af ls
 af add "New task" --today
 
-# Setup MCP for Claude Code
+# Setup MCP for Claude Code (stdio)
 af setup claude-code
+# or share one server across sessions: see below
 ```
+
+### Shared MCP server (HTTP)
+
+`af --mcp` (stdio) starts a separate server for every Claude Code session. To share one
+server — one auth keep-alive, one token refresh — across all sessions, run the HTTP mode:
+
+```bash
+# 1. Run the server (127.0.0.1:7823/mcp; override with AF_MCP_HTTP_PORT)
+af --mcp --http
+
+# 2. Point Claude Code at it (writes { type: "http", url, headers } to ~/.claude.json)
+af setup claude-code --http
+```
+
+Requests must carry `Authorization: Bearer <token>`. The token is generated on first start
+at `~/.config/akiflow/mcp-http-token` (mode 0600) and copied into the Claude Code config by
+`setup --http`.
+
+To keep the server running on Linux, install the systemd user unit:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp contrib/systemd/akiflow-mcp.service ~/.config/systemd/user/
+# edit ExecStart if af is not at ~/.local/bin/af
+systemctl --user daemon-reload
+systemctl --user enable --now akiflow-mcp
+journalctl --user -u akiflow-mcp -f      # logs
+```
+
+User services stop at logout unless lingering is enabled (`loginctl enable-linger $USER`).
 
 ### Verifying authentication
 
@@ -155,8 +189,8 @@ bun run scripts/mcp-live-demo.ts
 # A clean run ends with "✓ All Tier 2 E2E checks passed."
 
 # 4. Try it from your editor
-#    MCP: register `af --mcp` in ~/.claude.json and ask
-#    Claude Code "오늘 할 일 보여줘".
+#    af setup claude-code (or --http), restart Claude Code, then ask
+#    "오늘 할 일 보여줘".
 ```
 
 **If something fails**, read [`docs/akiflow-token-acquisition.md`](./docs/akiflow-token-acquisition.md) — it walks through the dual auth scheme (Laravel session cookie vs OAuth JWT), the 4-tier extraction cascade (IndexedDB → Cookie → Safari → Manual), the `withAuth` recovery sequence, and six known failure modes with concrete fixes.
@@ -172,17 +206,16 @@ bun run src/index.ts auth status                          # expect source: index
 
 ## Documentation
 
-- [CLI Commands](./docs/COMMANDS.md) *(coming soon)*
-- [MCP Tools](./docs/MCP_TOOLS.md) *(coming soon)*
-- [Authentication Guide](./docs/AUTHENTICATION.md) *(coming soon)*
+- [Authentication & token acquisition](./docs/akiflow-token-acquisition.md)
 - [Architecture Decisions](./docs/adr/README.md)
-- [Contributing](./docs/CONTRIBUTING.md) *(coming soon)*
+- Platform notes: [Linux](./docs/tasks/linux-support.md), [Windows](./docs/tasks/windows-support.md)
+- CLI reference: `af --help`, `af <command> --help`
 
 ## Development
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) >= 1.0.0
+- [Bun](https://bun.sh) >= 1.1.0
 - [pre-commit](https://pre-commit.com) (`brew install pre-commit` or `pip install pre-commit`)
 
 ### Setup
@@ -204,9 +237,9 @@ bun run build        # npm 배포용 dist/ 빌드
 bun run build:binary # 크로스 플랫폼 바이너리 빌드
 ```
 
-### Local MCP registration (before npm publish)
+### Local binary registration
 
-Until `akiflow-toolkit` lands on npm, you can still use it from Claude Code / Cursor / Claude Desktop by building a standalone binary and symlinking it into your `PATH`. `af setup` performs an atomic merge-write on the editor config, so any existing `mcpServers` entries are preserved.
+To run an unreleased build from Claude Code / Cursor / Claude Desktop, build a standalone binary and symlink it into your `PATH` (it takes precedence over a global `bun install -g` copy when `~/.local/bin` comes first). `af setup` performs an atomic merge-write on the editor config, so any existing `mcpServers` entries are preserved.
 
 #### Install
 
@@ -231,14 +264,15 @@ af --help
 af auth status               # expect: source: indexeddb, active
 
 # 5. Register the MCP server in your AI editor
-af setup claude-code         # → ~/.claude.json
+af setup claude-code         # → ~/.claude.json (stdio)
+# af setup claude-code --http  # → shared HTTP server (run `af --mcp --http` or the systemd unit)
 # af setup cursor            # → ~/.cursor/mcp.json
 # af setup claude-desktop    # → ~/Library/Application Support/Claude/... (macOS only)
 
 # 6. Restart the editor, then try a tool call (e.g. "show me today's inbox")
 ```
 
-When you edit source code later, only step 1 needs to run again — the symlink keeps pointing at the fresh binary.
+When you edit source code later, only step 1 needs to run again — the symlink keeps pointing at the fresh binary. If you run the shared HTTP server, restart it too (`systemctl --user restart akiflow-mcp`).
 
 #### Uninstall
 
@@ -249,6 +283,11 @@ jq 'del(.mcpServers.akiflow)' ~/.claude.json > ~/.claude.json.new && mv ~/.claud
 # Claude Desktop (macOS):
 #   CONFIG=~/Library/Application\ Support/Claude/claude_desktop_config.json
 #   jq 'del(.mcpServers.akiflow)' "$CONFIG" > "$CONFIG".new && mv "$CONFIG".new "$CONFIG"
+
+# 1b. If you used the shared HTTP server
+systemctl --user disable --now akiflow-mcp
+rm -f ~/.config/systemd/user/akiflow-mcp.service ~/.config/akiflow/mcp-http-token
+systemctl --user daemon-reload
 
 # 2. Remove the PATH shim
 rm -f ~/.local/bin/af

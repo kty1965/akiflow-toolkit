@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { XdgStorage } from "@adapters/fs/xdg-storage.ts";
@@ -43,6 +43,20 @@ describe("XdgStorage", () => {
 
       // Then: loaded credentials match the saved ones exactly
       expect(loaded).toEqual(creds);
+    });
+  });
+
+  describe("atomic save", () => {
+    test("overwriting leaves only auth.json behind (no temp file)", async () => {
+      // Given: credentials already saved once
+      await storage.saveCredentials(sampleCredentials);
+
+      // When: saved again with a rotated token
+      await storage.saveCredentials({ ...sampleCredentials, accessToken: "rotated" });
+
+      // Then: the file holds the new token and the temp file was renamed away
+      expect((await storage.loadCredentials())?.accessToken).toBe("rotated");
+      expect(await readdir(tempDir)).toEqual(["auth.json"]);
     });
   });
 
@@ -134,6 +148,53 @@ describe("XdgStorage", () => {
 
       // Then: returns the directory passed at construction
       expect(dir).toBe(tempDir);
+    });
+  });
+
+  describe("withRefreshLock", () => {
+    test("two storages on the same dir never run the critical section concurrently", async () => {
+      // Given: two independent storage instances sharing one config dir
+      const other = new XdgStorage(tempDir, { lockPollMs: 5 });
+      const fast = new XdgStorage(tempDir, { lockPollMs: 5 });
+      let active = 0;
+      let maxActive = 0;
+      const critical = async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await Bun.sleep(30);
+        active--;
+      };
+
+      // When: both enter the lock at the same time
+      await Promise.all([fast.withRefreshLock(critical), other.withRefreshLock(critical)]);
+
+      // Then: they were serialized and the lock file is gone
+      expect(maxActive).toBe(1);
+      expect(await readdir(tempDir)).not.toContain("auth.json.lock");
+    });
+
+    test("lock is released when the critical section throws", async () => {
+      // Given: a critical section that fails
+      const failing = storage.withRefreshLock(async () => {
+        throw new Error("boom");
+      });
+
+      // When/Then: the error propagates and the lock can be taken again
+      await expect(failing).rejects.toThrow("boom");
+      expect(await storage.withRefreshLock(async () => "again")).toBe("again");
+    });
+
+    test("stale lock left by a crashed process is reclaimed", async () => {
+      // Given: an orphaned lock file older than the stale threshold
+      const quick = new XdgStorage(tempDir, { lockStaleMs: 20, lockPollMs: 5 });
+      await writeFile(join(tempDir, "auth.json.lock"), "99999");
+      await Bun.sleep(40);
+
+      // When: acquiring the lock
+      const result = await quick.withRefreshLock(async () => "acquired");
+
+      // Then: the stale lock did not block
+      expect(result).toBe("acquired");
     });
   });
 });

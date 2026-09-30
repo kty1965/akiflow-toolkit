@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AKIFLOW_MCP_ENTRY,
+  buildHttpEntry,
   type CliWriter,
   type ConfirmPrompt,
   createSetupCommand,
@@ -72,6 +73,7 @@ function createComponents(status?: Partial<AuthStatus>): SetupCommandComponents 
   return {
     authService: service,
     logger: createSilentLogger(),
+    config: { configDir: home },
   };
 }
 
@@ -245,6 +247,84 @@ describe("registerMcpServer", () => {
   });
 });
 
+describe("registerMcpServer — http entry", () => {
+  test("writes the Claude Code http shape with the bearer header", async () => {
+    // Given: no config yet
+    const configPath = join(home, ".claude.json");
+
+    // When: registering an http entry
+    const result = await registerMcpServer(configPath, buildHttpEntry("tok", 7823), rejectingConfirm());
+
+    // Then: entry matches Claude Code's { type, url, headers } format
+    expect(result.state).toBe("added");
+    const written = JSON.parse(await readFile(configPath, "utf-8"));
+    expect(written.mcpServers.akiflow).toEqual({
+      type: "http",
+      url: "http://127.0.0.1:7823/mcp",
+      headers: { Authorization: "Bearer tok" },
+    });
+  });
+
+  test("switching an existing stdio entry to http asks before overwriting", async () => {
+    // Given: the stdio entry from a previous setup
+    const configPath = join(home, ".claude.json");
+    await writeFile(configPath, JSON.stringify({ mcpServers: { akiflow: { command: "af", args: ["--mcp"] } } }));
+    let asked = false;
+
+    // When: registering http with confirm=yes
+    const result = await registerMcpServer(configPath, buildHttpEntry("tok", 7823), async () => {
+      asked = true;
+      return true;
+    });
+
+    // Then: confirmed and replaced
+    expect(asked).toBe(true);
+    expect(result.state).toBe("updated");
+    const written = JSON.parse(await readFile(configPath, "utf-8"));
+    expect(written.mcpServers.akiflow.type).toBe("http");
+  });
+
+  test("strips group/other bits from an existing config because it now holds the token", async () => {
+    // Given: a group-readable config with the stdio entry
+    const configPath = join(home, ".claude.json");
+    await writeFile(configPath, JSON.stringify({ mcpServers: {} }));
+    await chmod(configPath, 0o664);
+
+    // When: registering the http entry
+    await registerMcpServer(configPath, buildHttpEntry("tok", 7823), rejectingConfirm());
+
+    // Then: owner-only
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  test("stdio registration preserves the existing file mode", async () => {
+    // Given: a config with a custom mode
+    const configPath = join(home, ".claude.json");
+    await writeFile(configPath, "{}");
+    await chmod(configPath, 0o640);
+
+    // When: registering the stdio entry
+    await registerMcpServer(configPath, AKIFLOW_MCP_ENTRY, rejectingConfirm());
+
+    // Then: mode unchanged rather than reset by the tmp-file rename
+    expect((await stat(configPath)).mode & 0o777).toBe(0o640);
+  });
+
+  test("identical http entry → 'already', a rotated token → differs", async () => {
+    // Given: an http entry already registered
+    const configPath = join(home, ".claude.json");
+    await registerMcpServer(configPath, buildHttpEntry("tok", 7823), rejectingConfirm());
+
+    // When: registering the same entry, then one with a different token
+    const same = await registerMcpServer(configPath, buildHttpEntry("tok", 7823), rejectingConfirm());
+    const rotated = await registerMcpServer(configPath, buildHttpEntry("new-tok", 7823), noConfirm());
+
+    // Then: same is a no-op, rotated needs confirmation
+    expect(same.state).toBe("already");
+    expect(rotated.state).toBe("cancelled");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // runSetupTarget — user-visible output
 // ---------------------------------------------------------------------------
@@ -265,6 +345,7 @@ describe("runSetupTarget", () => {
         },
       },
       logger: createSilentLogger(),
+      config: { configDir: home },
     };
     const { stream, chunks } = createCapturingStream();
 

@@ -11,6 +11,7 @@ import type { StoragePort } from "../ports/storage-port.ts";
 import type { AuthStatus, Credentials, ExtractedToken, TokenRefreshResponse } from "../types.ts";
 
 const FALLBACK_TTL_MS = 30 * 60 * 1000;
+export const PROACTIVE_REFRESH_SKEW_MS = 2 * 60 * 1000;
 
 export interface AuthServiceDeps {
   storage: StoragePort;
@@ -23,6 +24,7 @@ export interface AuthServiceDeps {
 
 export class AuthService {
   private refreshPromise: Promise<TokenRefreshResponse> | null = null;
+  private storedRefreshPromise: Promise<Credentials | null> | null = null;
 
   constructor(private readonly deps: AuthServiceDeps) {}
 
@@ -37,7 +39,17 @@ export class AuthService {
 
   async authenticate(): Promise<Credentials> {
     const stored = await this.deps.storage.loadCredentials();
-    if (stored && !this.isExpired(stored)) return stored;
+    if (stored && !this.isExpiringSoon(stored)) return stored;
+
+    // An expired access token is the normal state after its 30-minute TTL, so
+    // refresh before touching browser readers — headless callers (MCP server)
+    // have no browser to fall back to. Refreshing slightly early keeps an
+    // in-flight request from racing the expiry.
+    if (stored) {
+      const refreshed = await this.recoverTier1Refresh(stored);
+      if (refreshed) return refreshed;
+      if (!this.isExpired(stored)) return stored;
+    }
 
     for (const reader of this.deps.browserReaders) {
       try {
@@ -154,22 +166,43 @@ export class AuthService {
   }
 
   private async recoverTier1Refresh(creds: Credentials): Promise<Credentials | null> {
-    if (!creds.refreshToken) return null;
     try {
-      const refreshed = await this.refreshOnce(creds.refreshToken);
-      const newCreds: Credentials = {
-        ...creds,
-        accessToken: refreshed.access_token,
-        refreshToken: refreshed.refresh_token ?? creds.refreshToken,
-        expiresAt: Date.now() + refreshed.expires_in * 1000,
-        savedAt: new Date().toISOString(),
-      };
-      await this.deps.storage.saveCredentials(newCreds);
-      return newCreds;
+      return await this.refreshStoredOnce(creds);
     } catch (err) {
       this.deps.logger.debug("[auth] tier 1 refresh failed", { err: String(err) });
       return null;
     }
+  }
+
+  private refreshStoredOnce(creds: Credentials): Promise<Credentials | null> {
+    if (!this.storedRefreshPromise) {
+      const run = () => this.refreshStored(creds);
+      const locked = this.deps.storage.withRefreshLock ? this.deps.storage.withRefreshLock(run) : run();
+      this.storedRefreshPromise = locked.finally(() => {
+        this.storedRefreshPromise = null;
+      });
+    }
+    return this.storedRefreshPromise;
+  }
+
+  // Must run under the refresh lock. Akiflow rotates refresh tokens, so another
+  // process (CLI vs. MCP server) may have spent ours while we waited: adopt its
+  // result, or refresh with the token currently on disk rather than our copy.
+  private async refreshStored(creds: Credentials): Promise<Credentials | null> {
+    const onDisk = (await this.deps.storage.loadCredentials()) ?? creds;
+    if (onDisk.accessToken !== creds.accessToken && !this.isExpiringSoon(onDisk)) return onDisk;
+    if (!onDisk.refreshToken) return null;
+
+    const refreshed = await this.refreshOnce(onDisk.refreshToken);
+    const newCreds: Credentials = {
+      ...onDisk,
+      accessToken: refreshed.access_token,
+      refreshToken: refreshed.refresh_token ?? onDisk.refreshToken,
+      expiresAt: Date.now() + refreshed.expires_in * 1000,
+      savedAt: new Date().toISOString(),
+    };
+    await this.deps.storage.saveCredentials(newCreds);
+    return newCreds;
   }
 
   private async recoverTier2Reload(lastTried: Credentials): Promise<Credentials | null> {
@@ -239,6 +272,10 @@ export class AuthService {
 
   private isExpired(creds: Credentials): boolean {
     return creds.expiresAt <= Date.now();
+  }
+
+  private isExpiringSoon(creds: Credentials): boolean {
+    return creds.expiresAt - PROACTIVE_REFRESH_SKEW_MS <= Date.now();
   }
 
   private async tokensToCredentials(
