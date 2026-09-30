@@ -720,8 +720,8 @@ describe("AuthService", () => {
       expect(refresher.state.calls.length).toBe(1);
     });
 
-    test("Tier 2 recovery: refresh fails, disk reload produces fresh creds → retry succeeds", async () => {
-      // Given: valid stored creds at start; refresh throws (expired refresh token);
+    test("parallel refresh already on disk → adopted without spending the refresh token", async () => {
+      // Given: valid stored creds at start; refresh would throw (refresh token already rotated);
       //        a parallel process "writes" new creds to disk between attempts.
       const initial = makeCredentials({ accessToken: "stale", refreshToken: "stale_refresh" });
       const parallelUpdate = makeCredentials({
@@ -756,10 +756,10 @@ describe("AuthService", () => {
       // When: withAuth runs
       const result = await service.withAuth(op);
 
-      // Then: retry used the parallel-written token (Tier 2)
+      // Then: retry used the parallel-written token, no refresh request sent
       expect(result).toBe("parallel_written");
       expect(attempts).toBe(2);
-      expect(refresher.state.calls.length).toBe(1);
+      expect(refresher.state.calls.length).toBe(0);
     });
 
     test("Tier 3 recovery: refresh fails, disk unchanged, browser reader produces new creds → retry succeeds", async () => {
@@ -840,6 +840,57 @@ describe("AuthService", () => {
       expect(r1).toBe("shared_refreshed");
       expect(r2).toBe("shared_refreshed");
       expect(refresher.state.calls.length).toBe(1);
+    });
+
+    test("refresh runs inside the storage refresh lock", async () => {
+      // Given: expiring creds and a storage that records lock usage
+      const storage = createStorage(makeCredentials({ expiresAt: Date.now() + 60 * 1000 }));
+      const events: string[] = [];
+      storage.port.withRefreshLock = async (fn) => {
+        events.push("lock");
+        try {
+          return await fn();
+        } finally {
+          events.push("unlock");
+        }
+      };
+      const refresher = createRefresher();
+      const refreshFn = async (token: string) => {
+        events.push("refresh");
+        return refresher.fn(token);
+      };
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refreshFn });
+
+      // When: authenticate
+      await service.authenticate();
+
+      // Then: the refresh request happened between lock and unlock
+      expect(events).toEqual(["lock", "refresh", "unlock"]);
+    });
+
+    test("refresh token rotated on disk by another process → refresh with the disk token", async () => {
+      // Given: memory holds creds A; while waiting for the lock another process
+      //        rotated the refresh token, but its access token is also expiring
+      const inMemory = makeCredentials({ expiresAt: Date.now() + 60 * 1000 });
+      const rotated = makeCredentials({
+        accessToken: "other_process_access",
+        refreshToken: "rotated_refresh_token",
+        expiresAt: Date.now() + 60 * 1000,
+      });
+      const storage = createStorage(inMemory);
+      storage.port.withRefreshLock = async (fn) => {
+        storage.state.current = rotated;
+        return fn();
+      };
+      const refresher = createRefresher();
+      const { service } = buildService({ storage: storage.port, refreshAccessToken: refresher.fn });
+
+      // When: authenticate
+      const creds = await service.authenticate();
+
+      // Then: the rotated token was spent, not the stale in-memory one
+      expect(refresher.state.calls).toEqual(["rotated_refresh_token"]);
+      expect(creds.accessToken).toBe("refreshed_access_token");
     });
   });
 
