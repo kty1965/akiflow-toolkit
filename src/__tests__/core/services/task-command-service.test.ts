@@ -344,7 +344,7 @@ describe("TaskCommandService", () => {
   });
 
   describe("completeTask", () => {
-    test("sets done=true and status=1", async () => {
+    test("sets done=true and leaves status untouched", async () => {
       // Given: a capturing port
       const { port, calls } = createHttp();
       const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
@@ -352,10 +352,11 @@ describe("TaskCommandService", () => {
       // When: completeTask
       await service.completeTask("id-1");
 
-      // Then: payload has done=true and status=1
+      // Then: payload has done=true and no status — status 1 means Inbox, so
+      // sending it would move a planned task back to the Inbox
       const payload = calls[0].tasks[0] as UpdateTaskPayload;
       expect(payload.done).toBe(true);
-      expect(payload.status).toBe(1);
+      expect(payload.status).toBeUndefined();
       expect(payload.id).toBe("id-1");
     });
   });

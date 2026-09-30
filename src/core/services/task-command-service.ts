@@ -118,7 +118,6 @@ export class TaskCommandService {
       id,
       global_updated_at: new Date().toISOString(),
       done: true,
-      status: 1,
     };
     return this.patchSingle(payload, "completeTask");
   }
