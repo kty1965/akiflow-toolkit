@@ -1,3 +1,17 @@
+# [1.8.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.7.0...v1.8.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* **tasks:** keep status in step with the task's date ([976f3b1](https://github.com/kty1965/akiflow-toolkit/commit/976f3b1f496041b4071d38739d5d2c298fc77b12))
+* **tasks:** match the app's inbox and hide trashed tasks ([71e5c40](https://github.com/kty1965/akiflow-toolkit/commit/71e5c40386070a92cd5c32f1ab6b6071f41bf7c8))
+* **tasks:** stop moving completed tasks back to the inbox ([38efafb](https://github.com/kty1965/akiflow-toolkit/commit/38efafbf82e7a9243282deb1ea72dac81d2920ed))
+
+
+### Features
+
+* **tasks:** add someday and planned filters ([b3ac91f](https://github.com/kty1965/akiflow-toolkit/commit/b3ac91f4457c97ea1cf11e06feda1638bed65950))
+
 # [1.7.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.6.1...v1.7.0) (2026-09-30)
 
 
