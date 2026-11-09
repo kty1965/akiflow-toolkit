@@ -1,8 +1,8 @@
 ---
 title: "Task — Linux platform support"
 createdAt: 2026-04-20T00:00:00+09:00
-updatedAt: 2026-04-20T00:00:00+09:00
-version: "1.0.0"
+updatedAt: 2026-11-10T07:41:50+09:00
+version: "1.0.1"
 type: spec
 tags:
   - platform
@@ -12,17 +12,19 @@ tags:
   - auto-auth
 ---
 
-# Task: Linux Platform Support
+# 작업: Linux 플랫폼 지원
 
-## Status
+**한국어** | [English](./linux-support.en.md)
+
+## 상태
 
 🟡 **Partial** — Bun runtime이 Linux x64/arm64를 공식 지원하므로 CLI/MCP는 동작한다. 단 Chrome cookie 기반 자동 인증이 libsecret/kwallet 미연동으로 동작하지 않고, standalone binary는 GitHub Release에 이미 포함되어 있다.
 
-## Goal
+## 목표
 
 Linux (Ubuntu/Debian/Fedora/Arch 등) 사용자가 `akiflow-toolkit` 전 기능을 사용할 수 있도록 만든다. 특히 GNOME Keyring / KDE KWallet 기반 Chrome cookie 자동 인증을 복구한다.
 
-## Current State
+## 현재 상태
 
 | 영역 | 현재 | 비고 |
 |------|------|------|
@@ -38,9 +40,9 @@ Linux (Ubuntu/Debian/Fedora/Arch 등) 사용자가 `akiflow-toolkit` 전 기능�
 | `af auth` (자동 — Safari) | ❌ 해당 없음 | Apple 전용 |
 | Completion script | ✅ bash/zsh/fish | Linux 표준 셸 전부 커버 |
 
-## Required Work
+## 필요한 작업
 
-### A. Chrome/Chromium cookie 자동 인증 (High effort)
+### A. Chrome/Chromium cookie 자동 인증 (공수 큼)
 
 Linux Chrome/Chromium 계열 브라우저는 cookie 암호화에 `Secret Service API`(libsecret) 또는 kwallet을 사용한다. `chrome-cookie.ts`는 현재 macOS Keychain만 지원한다.
 
@@ -68,7 +70,7 @@ Linux Chrome/Chromium 계열 브라우저는 cookie 암호화에 `Secret Service
 - [ ] `v10` (peanuts) / `v11` (libsecret) 접두사에 따라 password 선택
 - [ ] 단위 테스트: Linux CI runner에 `gnome-keyring-daemon` 부재 시 fallback 경로 검증
 
-### B. IndexedDB 기반 인증 (Medium effort)
+### B. IndexedDB 기반 인증 (공수 중간)
 
 `src/adapters/browser/indexeddb-reader.ts`는 순수 `node:fs` 기반이다. 경로만 올바르면 Linux Chrome/Chromium에서도 plaintext 토큰을 추출할 수 있을 가능성이 있다 (macOS 동일 원리).
 
@@ -81,7 +83,7 @@ Linux Chrome/Chromium 계열 브라우저는 cookie 암호화에 `Secret Service
   - `LOCK` 파일 경합 문제(macOS와 동일)가 Linux에서도 발생하는지 확인
 - [ ] 발견된 경로를 `BrowserProfile`에 추가하고 회귀 테스트
 
-### C. CDP fallback (Low effort)
+### C. CDP fallback (공수 작음)
 
 `src/adapters/browser/cdp-launcher.ts`는 `/usr/bin/env which`로 바이너리를 찾는다. Linux 호환성 검증 필요.
 
@@ -92,20 +94,20 @@ Linux Chrome/Chromium 계열 브라우저는 cookie 암호화에 `Secret Service
   - `microsoft-edge`
 - [ ] 현재 `BROWSER_ID_PATTERN` 체크(Chromium-family filter)가 Linux 변종도 허용하는지 회귀 테스트
 
-### D. Packaging (Optional)
+### D. 패키징 (선택)
 
 - [ ] **AUR** (Arch User Repository) 패키지: `akiflow-toolkit-bin` (prebuilt binary 설치)
 - [ ] **Homebrew on Linux**: macOS와 동일 formula 가능성 검토
 - [ ] **snap / flatpak**: Bun runtime 묶음 복잡도 고려 시 후순위
 
-## Dependencies & Blockers
+## 의존성과 블로커
 
 - `bun:sqlite` Linux 동작 확인 완료
 - libsecret DBus API는 Ubuntu/Debian/Fedora 기본 설치 (`libsecret-1-0`). Arch는 사용자 설정에 따라 다름
 - kwallet (KDE)는 이번 Task 범위 밖으로 분리 가능
 - `~/.config` XDG 규격은 node:path로 이미 올바르게 처리됨
 
-## Acceptance Criteria
+## 완료 기준
 
 - [ ] `bun install -g akiflow-toolkit` 후 Linux에서 `af --help` 동작
 - [ ] 수동 `af auth` + CLI/MCP 전 명령어 정상
@@ -113,14 +115,14 @@ Linux Chrome/Chromium 계열 브라우저는 cookie 암호화에 `Secret Service
 - [ ] CI에 `ubuntu-latest` matrix 추가, unit test 통과
 - [ ] README `Platform Support` 섹션의 Linux 열이 ✅로 업데이트됨
 
-## Priority & Sequencing
+## 우선순위와 순서
 
-- **Priority 1**: B (IndexedDB 검증) — 경로만 맞으면 macOS와 동일 경로 재활용, 1일 내 완료 가능성
-- **Priority 2**: C (CDP fallback 회귀 검증) — 0.5일
-- **Priority 3**: A (Chrome cookie libsecret) — 2~3일, DBus 호출 구현
-- **Priority 4**: D (AUR/Homebrew 패키징) — 커뮤니티 수요 시
+- **1순위**: B (IndexedDB 검증) — 경로만 맞으면 macOS와 동일 경로 재활용, 1일 내 완료 가능성
+- **2순위**: C (CDP fallback 회귀 검증) — 0.5일
+- **3순위**: A (Chrome cookie libsecret) — 2~3일, DBus 호출 구현
+- **4순위**: D (AUR/Homebrew 패키징) — 커뮤니티 수요 시
 
-## References
+## 참고 자료
 
 - Chromium Linux cookie encryption: https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/os_crypt/sync/os_crypt_linux.cc
 - libsecret Secret Service DBus spec: https://specifications.freedesktop.org/secret-service/latest/
