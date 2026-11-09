@@ -12,7 +12,9 @@ tags:
   - diagram
 ---
 
-# Akiflow Token Acquisition Flow
+# Akiflow 토큰 획득 흐름
+
+**한국어** | [English](./akiflow-token-acquisition.en.md)
 
 `akiflow-toolkit`은 Akiflow 공식 API 토큰 발급 체계가 없는 **역공학 CLI/MCP 툴킷**이다. Akiflow 웹앱이 Chrome/Safari에 남긴 흔적에서 유효한 토큰을 추출하거나, 사용자가 수동 입력한 refresh_token을 서버에서 교환해 Bearer JWT를 확보한다. 본 문서는 그 과정을 계층별로 설명한다.
 
@@ -48,7 +50,7 @@ flowchart LR
 
 ---
 
-## 2. 4-Tier Hierarchical Cascade
+## 2. 4단계 순차 시도 (4-Tier Cascade)
 
 `AuthService.authenticate()`가 순서대로 시도한다. 먼저 성공한 tier에서 멈춘다.
 
@@ -239,7 +241,7 @@ sequenceDiagram
 
 ---
 
-## 6. Token 포맷 레퍼런스
+## 6. 토큰 포맷 레퍼런스
 
 ### Access Token (JWT)
 Laravel Passport가 발급하는 3-part base64url. `indexeddb-reader.ts`의 정규식:
@@ -274,7 +276,7 @@ REFRESH_RE = /def50200[a-f0-9]{200,}/
 
 ---
 
-## 7. 파일 & 경로 참조
+## 7. 파일과 경로 참조
 
 | 경로 | 역할 |
 |------|------|
@@ -326,7 +328,7 @@ bun run src/index.ts auth --manual
 
 ---
 
-## 10. 개선 후보 (Follow-up Tasks)
+## 10. 개선 후보 (후속 작업)
 
 1. **Cookie tier misattribution 수정** — reader가 refresh 또는 JWT를 못 찾으면 `null` 반환
 2. **CDP login wiring (TASK-18)** — `CdpBrowserLogin`을 `authenticate()`에서 호출
