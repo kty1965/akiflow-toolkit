@@ -8,16 +8,17 @@
 import type { AkiflowHttpPort } from "../ports/akiflow-http-port.ts";
 import type { CachePort } from "../ports/cache-port.ts";
 import type { LoggerPort } from "../ports/logger-port.ts";
-import type {
-  Calendar,
-  CalendarEvent,
-  Label,
-  MeetingBrief,
-  Recording,
-  Tag,
-  Task,
-  TaskQueryOptions,
-  TimeSlot,
+import {
+  type Calendar,
+  type CalendarEvent,
+  type Label,
+  type MeetingBrief,
+  type Recording,
+  TASK_STATUS,
+  type Tag,
+  type Task,
+  type TaskQueryOptions,
+  type TimeSlot,
 } from "../types.ts";
 import { isRetryable } from "../utils/is-retryable.ts";
 import { type RetryPolicy, withRetry } from "../utils/retry.ts";
@@ -138,7 +139,7 @@ export class TaskQueryService {
   }
 
   async getTaskById(id: string): Promise<Task | null> {
-    const tasks = await this.listTasks();
+    const tasks = await this.listTasks({ includeHidden: true });
     const exact = tasks.find((t) => t.id === id);
     if (exact) return exact;
     const prefix = tasks.find((t) => t.id.startsWith(id));
@@ -231,13 +232,22 @@ export class TaskQueryService {
   }
 }
 
+const HIDDEN_STATUSES: ReadonlySet<number> = new Set([TASK_STATUS.TRASHED, TASK_STATUS.RECURRING_TEMPLATE]);
+
 function applyFilters(tasks: Task[], options: TaskQueryOptions): Task[] {
   let out = tasks.filter((t) => t.deleted_at === null);
+  if (!options.includeHidden) {
+    out = out.filter((t) => t.status === null || !HIDDEN_STATUSES.has(t.status));
+  }
 
   if (options.filter === "today" && options.date) {
     out = out.filter((t) => t.date === options.date);
   } else if (options.filter === "inbox") {
-    out = out.filter((t) => t.date === null && !t.done);
+    out = out.filter((t) => (t.status === TASK_STATUS.INBOX || t.status === null) && t.date === null && !t.done);
+  } else if (options.filter === "someday") {
+    out = out.filter((t) => t.status === TASK_STATUS.SOMEDAY && !t.done);
+  } else if (options.filter === "planned") {
+    out = out.filter((t) => t.status === TASK_STATUS.PLANNED && t.date === null && t.plan_unit != null && !t.done);
   } else if (options.filter === "done") {
     out = out.filter((t) => t.done);
   } else if (options.date) {

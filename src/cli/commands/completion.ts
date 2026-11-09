@@ -70,7 +70,7 @@ _af_completion() {
       return 0
       ;;
     add|ls)
-      COMPREPLY=( $(compgen -W "--today --tomorrow --date --at --duration --project --json --inbox --done --search" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--today --tomorrow --date --at --duration --project --json --inbox --someday --planned --done --search" -- "$cur") )
       return 0
       ;;
   esac

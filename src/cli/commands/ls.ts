@@ -38,7 +38,9 @@ export function createLsCommand(components: LsCommandComponents, options: LsComm
   return defineCommand({
     meta: { name: "ls", description: "List tasks" },
     args: {
-      inbox: { type: "boolean", description: "Only inbox (unscheduled) tasks", default: false },
+      inbox: { type: "boolean", description: "Only open Inbox tasks", default: false },
+      someday: { type: "boolean", description: "Only open Someday tasks", default: false },
+      planned: { type: "boolean", description: "Only open tasks planned for a week/month", default: false },
       done: { type: "boolean", description: "Only completed tasks", default: false },
       all: { type: "boolean", description: "All tasks (no date filter)", default: false },
       today: { type: "boolean", description: "Tasks scheduled for today (default)", default: false },
@@ -52,6 +54,8 @@ export function createLsCommand(components: LsCommandComponents, options: LsComm
         const options = buildQueryOptions(
           {
             inbox: Boolean(args.inbox),
+            someday: Boolean(args.someday),
+            planned: Boolean(args.planned),
             done: Boolean(args.done),
             all: Boolean(args.all),
             today: Boolean(args.today),
@@ -83,6 +87,8 @@ export function createLsCommand(components: LsCommandComponents, options: LsComm
 
 export interface LsFlags {
   inbox: boolean;
+  someday?: boolean;
+  planned?: boolean;
   done: boolean;
   all: boolean;
   today: boolean;
@@ -96,6 +102,10 @@ export function buildQueryOptions(flags: LsFlags, now: Date): TaskQueryOptions {
 
   if (flags.inbox) {
     options.filter = "inbox";
+  } else if (flags.someday) {
+    options.filter = "someday";
+  } else if (flags.planned) {
+    options.filter = "planned";
   } else if (flags.done) {
     options.filter = "done";
   } else if (flags.all) {
