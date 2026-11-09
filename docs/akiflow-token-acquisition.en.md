@@ -1,7 +1,7 @@
 ---
 title: "Akiflow Token Acquisition Flow"
-createdAt: 2026-04-19T22:30:00+09:00
-updatedAt: 2026-04-19T22:30:00+09:00
+createdAt: 2026-11-10T07:41:50+09:00
+updatedAt: 2026-11-10T07:41:50+09:00
 version: "1.0.0"
 type: artifact
 tags:

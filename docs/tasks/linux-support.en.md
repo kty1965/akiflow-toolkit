@@ -1,7 +1,7 @@
 ---
 title: "Task — Linux platform support"
-createdAt: 2026-04-20T00:00:00+09:00
-updatedAt: 2026-04-20T00:00:00+09:00
+createdAt: 2026-11-10T07:41:50+09:00
+updatedAt: 2026-11-10T07:41:50+09:00
 version: "1.0.0"
 type: spec
 tags:

@@ -181,10 +181,11 @@ Commands you will reach for when running the shared HTTP server under systemd.
 | Is it running? | `systemctl --user is-active akiflow-mcp` |
 | Startup log (the `MCP server listening` line) | `journalctl --user -u akiflow-mcp -n 20 --no-pager` |
 | Auth state | `af auth status` |
-| Ship a source change (Linux x64) | `bun run build:linux-x64 && systemctl --user restart akiflow-mcp` |
+| Pick up a new release (npm install) | `bun install -g akiflow-toolkit@latest && systemctl --user restart akiflow-mcp` |
+| Ship a source change (local binary, Linux x64) | `bun run build:linux-x64 && systemctl --user restart akiflow-mcp` |
 | Keep it running after logout | `loginctl enable-linger $USER` |
 
-- **Redeploying means rebuilding the binary.** The unit runs `~/.local/bin/af` → `dist/af-<platform>` (a compiled binary). `bun run build` only rewrites `dist/index.js`, so the server never sees it. After building, confirm with something like `af ls --help` showing the new options.
+- **With a local binary, redeploying means rebuilding it.** If you followed [Local binary registration](#local-binary-registration), the unit runs `~/.local/bin/af` → `dist/af-<platform>` (a compiled binary). `bun run build` only rewrites `dist/index.js`, so the server never sees it. After building, confirm with something like `af ls --help` showing the new options.
 - **File locations**: credentials live in `~/.config/akiflow/auth.json`, the HTTP Bearer token in `~/.config/akiflow/mcp-http-token`. Deleting the token file makes the next start generate a new one, so run `af setup claude-code --http` again.
 - **Log level**: the unit sets `LOG_LEVEL=info` so the startup line reaches the journal. To debug, change it to `Environment=LOG_LEVEL=debug`, then `daemon-reload` and restart.
 - **CLI auth and browser login are separate.** Re-running `af auth` does not log in any other browser session (for example, a browser automation tool).
@@ -275,6 +276,13 @@ So commit messages and the merge method decide what gets released.
 gh pr merge <PR number> --merge
 ```
 
+For a stack, retarget the top PR to `main` right before merging it.
+
+```bash
+gh pr edit <top PR> --base main
+gh pr merge <top PR> --merge
+```
+
 When several changes depend on each other, split them into stacked PRs. Each PR uses the branch directly below it as its base.
 
 ```text
@@ -287,7 +295,7 @@ main ← fix/auth-refresh-expired-token (#98)
 
 1. Review from the bottom PR up. Each diff is against the branch directly below, so it stays small.
 2. If a lower branch changes, rebase each branch above it in order and push.
-3. Once everything is approved, merge the top PR into `main` once, with a merge commit. GitHub marks the lower PRs as merged because their commits are already on `main`.
+3. Once everything is approved, retarget the top PR to `main` and merge it once, with a merge commit (commands above). In this repo #98–#101 were marked merged by the same merge commit. If a lower PR stays open, close it by hand.
 4. Every commit is preserved, so semantic-release counts all of them. The stack above became 1.7.0 (2 fixes, 5 features) from a single merge.
 
 ### Local binary registration

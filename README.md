@@ -180,10 +180,11 @@ user 서비스는 로그아웃하면 멈춥니다. 계속 띄우려면 lingering
 | 살아 있는지 확인 | `systemctl --user is-active akiflow-mcp` |
 | 시작 로그 확인 (`MCP server listening` 줄) | `journalctl --user -u akiflow-mcp -n 20 --no-pager` |
 | 인증 상태 확인 | `af auth status` |
-| 소스 변경 반영 (Linux x64) | `bun run build:linux-x64 && systemctl --user restart akiflow-mcp` |
+| 새 버전 반영 (npm 설치) | `bun install -g akiflow-toolkit@latest && systemctl --user restart akiflow-mcp` |
+| 소스 변경 반영 (로컬 바이너리, Linux x64) | `bun run build:linux-x64 && systemctl --user restart akiflow-mcp` |
 | 로그아웃 후에도 유지 | `loginctl enable-linger $USER` |
 
-- **재배포는 바이너리를 다시 빌드해야 합니다.** unit 은 `~/.local/bin/af` → `dist/af-<platform>` (compiled binary)를 실행합니다. `bun run build` 는 `dist/index.js` 만 바꾸므로 서버에 반영되지 않습니다. 빌드 후 `af ls --help` 처럼 새 옵션이 보이는지로 확인하세요.
+- **로컬 바이너리로 돌린다면 재배포는 바이너리를 다시 빌드해야 합니다.** [로컬 바이너리 등록](#로컬-바이너리-등록)을 따랐다면 unit 은 `~/.local/bin/af` → `dist/af-<platform>` (compiled binary)를 실행합니다. `bun run build` 는 `dist/index.js` 만 바꾸므로 서버에 반영되지 않습니다. 빌드 후 `af ls --help` 처럼 새 옵션이 보이는지로 확인하세요.
 - **파일 위치**: 인증 정보는 `~/.config/akiflow/auth.json`, HTTP Bearer 토큰은 `~/.config/akiflow/mcp-http-token` 입니다. 토큰 파일을 지우면 다음 시작 때 새로 만들어지므로 `af setup claude-code --http` 를 다시 실행해야 합니다.
 - **로그 레벨**: unit 은 `LOG_LEVEL=info` 로 시작 줄을 journal 에 남깁니다. 디버깅할 때는 unit 의 `Environment=LOG_LEVEL=debug` 로 바꾸고 `daemon-reload` 후 재시작합니다.
 - **CLI 인증과 브라우저 로그인은 별개입니다.** `af auth` 로 다시 인증해도 다른 브라우저 세션(예: 브라우저 자동화 도구)이 로그인되지는 않습니다.
@@ -274,6 +275,13 @@ bun run build:binary # 크로스 플랫폼 바이너리 빌드
 gh pr merge <PR번호> --merge
 ```
 
+스택의 맨 위 PR 은 머지 직전에 base 를 `main` 으로 바꿉니다.
+
+```bash
+gh pr edit <맨 위 PR> --base main
+gh pr merge <맨 위 PR> --merge
+```
+
 의존하는 변경이 여러 개면 stacked PR 로 나눕니다. 각 PR 은 바로 아래 브랜치를 base 로 삼습니다.
 
 ```text
@@ -286,7 +294,7 @@ main ← fix/auth-refresh-expired-token (#98)
 
 1. 아래 PR 부터 차례로 리뷰합니다. 각 PR 의 diff 는 바로 아래 브랜치 대비라 작게 유지됩니다.
 2. 아래 브랜치를 고치면 위 브랜치들을 차례로 rebase 하고 push 합니다.
-3. 전부 승인되면 맨 위 PR 을 `main` 에 merge commit 으로 한 번 머지합니다. 아래 PR 들은 커밋이 이미 `main` 에 들어갔으므로 GitHub 이 merged 로 표시합니다.
+3. 전부 승인되면 맨 위 PR 의 base 를 `main` 으로 바꾸고 merge commit 으로 한 번 머지합니다(위 명령). 이 저장소에서는 #98~#101 도 같은 머지 커밋으로 merged 처리됐습니다. 아래 PR 이 열린 채로 남으면 손으로 닫습니다.
 4. 커밋이 하나하나 보존되므로 semantic-release 가 전부 반영합니다. 위 스택은 머지 한 번으로 1.7.0 (fix 2개, feat 5개)이 되었습니다.
 
 ### 로컬 바이너리 등록
