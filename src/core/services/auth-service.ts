@@ -91,7 +91,7 @@ export class AuthService {
       try {
         extracted = await this.deps.cdpLogin.login();
       } catch (cdpErr) {
-        this.deps.logger.debug("cdp login failed", { err: String(cdpErr) });
+        this.deps.logger.warn("cdp login failed", { err: String(cdpErr) });
         throw err;
       }
       if (!extracted) throw err;
