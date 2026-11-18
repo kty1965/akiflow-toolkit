@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseBinaryCookies, SafariCookieReader } from "@adapters/browser/safari-cookie.ts";
+import { defaultSafariCookiesPath, parseBinaryCookies, SafariCookieReader } from "@adapters/browser/safari-cookie.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
 
 const silentLogger: LoggerPort = {
@@ -224,5 +224,25 @@ describe("SafariCookieReader", () => {
     expect(result).not.toBeNull();
     expect(result?.refreshToken).toBe(refresh);
     expect(result?.accessToken).toBe(""); // signals caller to exchange refresh → access
+  });
+});
+
+describe("defaultSafariCookiesPath", () => {
+  test("uses the sandboxed Safari container cookie jar when it exists", () => {
+    // Given: current macOS layout
+    const exists = (p: string) => p.includes("/Containers/com.apple.Safari/");
+
+    // When/Then
+    expect(defaultSafariCookiesPath("/Users/u", exists)).toBe(
+      "/Users/u/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+    );
+  });
+
+  test("falls back to the legacy ~/Library/Cookies jar", () => {
+    // Given: no container jar
+    const exists = () => false;
+
+    // When/Then
+    expect(defaultSafariCookiesPath("/Users/u", exists)).toBe("/Users/u/Library/Cookies/Cookies.binarycookies");
   });
 });

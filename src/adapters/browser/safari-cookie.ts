@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // SafariCookieReader — ADR-0003 Tier 2 (macOS only)
-// Parses ~/Library/Cookies/Cookies.binarycookies (Apple's binary cookie jar)
+// Parses Safari's Cookies.binarycookies (Apple's binary cookie jar)
 // and extracts Akiflow session cookies. Pure byte-level parser — no deps.
 // Reference: https://github.com/libyal/dtformats (Safari cookies file format)
 // ---------------------------------------------------------------------------
@@ -32,6 +32,23 @@ export interface SafariCookie {
   value: string;
 }
 
+// Sandboxed Safari keeps its cookie jar inside the app container; the
+// legacy location is kept as a fallback for older macOS releases.
+export function defaultSafariCookiesPath(home: string = homedir(), exists = existsSync): string {
+  const containerPath = join(
+    home,
+    "Library",
+    "Containers",
+    "com.apple.Safari",
+    "Data",
+    "Library",
+    "Cookies",
+    "Cookies.binarycookies",
+  );
+  const legacyPath = join(home, "Library", "Cookies", "Cookies.binarycookies");
+  return exists(containerPath) ? containerPath : legacyPath;
+}
+
 export class SafariCookieReader implements BrowserDataPort {
   private readonly cookiesPath: string;
 
@@ -39,7 +56,7 @@ export class SafariCookieReader implements BrowserDataPort {
     private readonly logger: LoggerPort,
     cookiesPath?: string,
   ) {
-    this.cookiesPath = cookiesPath ?? join(homedir(), "Library", "Cookies", "Cookies.binarycookies");
+    this.cookiesPath = cookiesPath ?? defaultSafariCookiesPath();
   }
 
   async extract(): Promise<ExtractedToken | null> {
