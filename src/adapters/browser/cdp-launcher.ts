@@ -25,6 +25,42 @@ const DEFAULT_LOGIN_URL = "https://web.akiflow.com/auth/login";
 // mimeType-based fallback in waitForLogin().
 const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/oauth/token", "/user/me"] as const;
 
+const DEFAULT_STORAGE_POLL_INTERVAL_MS = 1_500;
+const AKIFLOW_WEB_ORIGIN = "https://web.akiflow.com";
+
+// A session restored from the profile can load the app without any token
+// request hitting the network, so the network capture alone may never fire.
+// The web app keeps its OAuth tokens in IndexedDB akiflow_system →
+// local_accounts_data (one record per account). Reading through the page's
+// own IndexedDB API also sidesteps the on-disk format (LevelDB vs. the SQLite
+// backend Chrome 156+ uses for new data). `indexedDB.databases()` is checked
+// first because `indexedDB.open()` would create the database if missing.
+export const STORED_ACCOUNTS_EXPRESSION = `(async () => {
+  if (location.origin !== ${JSON.stringify(AKIFLOW_WEB_ORIGIN)}) return null;
+  const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+  if (!dbs.some((d) => d.name === "akiflow_system")) return null;
+  const db = await new Promise((res, rej) => {
+    const q = indexedDB.open("akiflow_system");
+    q.onsuccess = () => res(q.result);
+    q.onerror = () => rej(q.error);
+  });
+  try {
+    if (!db.objectStoreNames.contains("local_accounts_data")) return null;
+    const rows = await new Promise((res, rej) => {
+      const q = db.transaction("local_accounts_data").objectStore("local_accounts_data").getAll();
+      q.onsuccess = () => res(q.result);
+      q.onerror = () => rej(q.error);
+    });
+    return rows
+      .filter((r) => r && typeof r.access_token === "string")
+      .map((r) => ({ access_token: r.access_token, refresh_token: typeof r.refresh_token === "string" ? r.refresh_token : null }));
+  } finally {
+    db.close();
+  }
+})()`;
+
+class CdpSocketClosedError extends BrowserDataError {}
+
 // Security (SECURITY-AUDIT-REPORT S-13): reject CDP endpoints that a local
 // port squatter could masquerade as. We validate the Browser identity from
 // /json/version and insist the WebSocket URL points at localhost on the
@@ -127,6 +163,7 @@ export interface CdpBrowserLoginOptions {
   chromePath?: string;
   loginTimeoutMs?: number;
   discoveryTimeoutMs?: number;
+  storagePollIntervalMs?: number;
   // Injection seams (default to real platform implementations)
   spawnFn?: SpawnFn;
   fetchFn?: FetchFn;
@@ -168,6 +205,7 @@ export class CdpBrowserLogin {
   private readonly chromePath: string | undefined;
   private readonly loginTimeoutMs: number;
   private readonly discoveryTimeoutMs: number;
+  private readonly storagePollIntervalMs: number;
   private readonly spawnFn: SpawnFn;
   private readonly fetchFn: FetchFn;
   private readonly createWebSocketFn: CreateWebSocketFn;
@@ -183,6 +221,7 @@ export class CdpBrowserLogin {
     this.chromePath = options.chromePath;
     this.loginTimeoutMs = options.loginTimeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
     this.discoveryTimeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
+    this.storagePollIntervalMs = options.storagePollIntervalMs ?? DEFAULT_STORAGE_POLL_INTERVAL_MS;
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.fetchFn = options.fetchFn ?? defaultFetch;
     this.createWebSocketFn = options.createWebSocketFn ?? defaultCreateWebSocket;
@@ -210,9 +249,23 @@ export class CdpBrowserLogin {
     let ws: MinimalWebSocket | null = null;
     try {
       await this.getWebSocketUrl();
-      const pageWsUrl = await this.getPageDebuggerUrl();
-      ws = this.createWebSocketFn(pageWsUrl);
-      const captured = await this.waitForLogin(ws);
+      const deadline = Date.now() + this.loginTimeoutMs;
+      let captured: ExtractedToken | null = null;
+      while (!captured) {
+        const pageWsUrl = await this.getPageDebuggerUrl();
+        ws = this.createWebSocketFn(pageWsUrl);
+        try {
+          captured = await this.waitForLogin(ws, Math.max(0, deadline - Date.now()));
+        } catch (err) {
+          // The page socket can drop while Chrome itself is still running
+          // (target swap during the login redirect, tab closed and reopened).
+          // Re-discover the page and attach again; if Chrome is gone,
+          // getPageDebuggerUrl() times out and that error surfaces instead.
+          if (!(err instanceof CdpSocketClosedError) || Date.now() >= deadline) throw err;
+          this.logger.info(`[cdp] ${err.message} — reattaching to the page`);
+          ws = null;
+        }
+      }
       const token: ExtractedToken = { ...captured, browser: this.labelFor(chromePath) };
 
       // Security (SECURITY-AUDIT-REPORT S-13): if a validator is configured,
@@ -342,8 +395,9 @@ export class CdpBrowserLogin {
         if (res.ok) {
           const json = await res.json();
           if (Array.isArray(json)) {
-            for (const entry of json) {
-              if (readString(entry, "type") !== "page") continue;
+            const pages = json.filter((entry) => readString(entry, "type") === "page");
+            const akiflowPage = pages.find((entry) => (readString(entry, "url") ?? "").includes("akiflow.com"));
+            for (const entry of akiflowPage ? [akiflowPage] : pages) {
               const wsUrl = readString(entry, "webSocketDebuggerUrl");
               if (!wsUrl) continue;
               if (!isLocalDebuggerUrl(wsUrl, this.port)) {
@@ -367,16 +421,20 @@ export class CdpBrowserLogin {
   }
 
   /**
-   * Subscribe to CDP Network domain, wait until a token-bearing response is captured,
-   * and resolve with the parsed token. Rejects on timeout, ws close, or ws error.
+   * Wait until a token is available, from either source, and resolve with it:
+   *   - a token-bearing network response (CDP Network domain), or
+   *   - the web app's IndexedDB account record, polled via Runtime.evaluate.
+   * Rejects on timeout, ws close, or ws error.
    */
-  waitForLogin(ws: MinimalWebSocket): Promise<ExtractedToken> {
+  waitForLogin(ws: MinimalWebSocket, timeoutMs: number = this.loginTimeoutMs): Promise<ExtractedToken> {
     return new Promise<ExtractedToken>((resolve, reject) => {
       let nextCmdId = 0;
       // requestId -> response url for endpoints we care about
       const trackedRequests = new Map<string, string>();
       // command id -> requestId, for matching getResponseBody replies
       const pendingBodyCmds = new Map<number, string>();
+      let pendingStorageCmd: number | null = null;
+      let pollTimer: ReturnType<typeof setInterval> | undefined;
       let settled = false;
 
       const send = (method: string, params?: Record<string, unknown>): number => {
@@ -390,21 +448,32 @@ export class CdpBrowserLogin {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearInterval(pollTimer);
         action();
       };
 
       const timer = setTimeout(() => {
         settle(() => reject(new BrowserDataError(`CDP login timed out after ${this.loginTimeoutMs}ms`)));
-      }, this.loginTimeoutMs);
+      }, timeoutMs);
+
+      const pollStorage = (): void => {
+        if (settled || pendingStorageCmd !== null) return;
+        pendingStorageCmd = send("Runtime.evaluate", {
+          expression: STORED_ACCOUNTS_EXPRESSION,
+          awaitPromise: true,
+          returnByValue: true,
+        });
+      };
 
       ws.addEventListener("open", () => {
         send("Network.enable");
         send("Page.enable");
+        pollTimer = setInterval(pollStorage, this.storagePollIntervalMs);
       });
 
       ws.addEventListener("close", (ev) => {
         settle(() =>
-          reject(new BrowserDataError(`CDP WebSocket closed before token captured (code=${ev.code ?? "n/a"})`)),
+          reject(new CdpSocketClosedError(`CDP WebSocket closed before token captured (code=${ev.code ?? "n/a"})`)),
         );
       });
 
@@ -456,6 +525,16 @@ export class CdpBrowserLogin {
 
         // Reply to a sent command — match by id
         const replyId = readNumber(msg, "id");
+        if (replyId !== null && replyId === pendingStorageCmd) {
+          pendingStorageCmd = null;
+          const remote = readObject(readObject(msg, "result"), "result");
+          const token = pickStoredAccountToken(remote?.value);
+          if (token) {
+            this.logger.info("[cdp] read token from web app IndexedDB (akiflow_system/local_accounts_data)");
+            settle(() => resolve(token));
+          }
+          return;
+        }
         if (replyId !== null && pendingBodyCmds.has(replyId)) {
           const requestId = pendingBodyCmds.get(replyId);
           pendingBodyCmds.delete(replyId);
@@ -529,6 +608,30 @@ export function parseTokenBody(body: string, base64Encoded: boolean): ExtractedT
     expiresAt,
     browser: "Chrome",
   };
+}
+
+/**
+ * Pick the usable token from the account records returned by
+ * STORED_ACCOUNTS_EXPRESSION: the access token must be a JWT that has not
+ * expired yet, and with several accounts the latest-expiring one wins.
+ */
+export function pickStoredAccountToken(value: unknown, nowSec: number = Date.now() / 1000): ExtractedToken | null {
+  if (!Array.isArray(value)) return null;
+  let best: ExtractedToken | null = null;
+  for (const row of value) {
+    const accessToken = readString(row, "access_token");
+    if (!accessToken) continue;
+    const exp = extractJwtExp(accessToken);
+    if (exp === null || exp <= nowSec) continue;
+    if (best?.expiresAt !== undefined && best.expiresAt >= exp) continue;
+    best = {
+      accessToken,
+      refreshToken: readString(row, "refresh_token") ?? undefined,
+      expiresAt: Math.floor(exp),
+      browser: "Chrome",
+    };
+  }
+  return best;
 }
 
 function extractJwtExp(token: string): number | null {
