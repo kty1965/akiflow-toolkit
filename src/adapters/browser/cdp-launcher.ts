@@ -26,6 +26,8 @@ const DEFAULT_LOGIN_URL = "https://web.akiflow.com/auth/login";
 const TOKEN_URL_PATTERNS = ["/oauth/refreshToken", "/oauth/token", "/user/me"] as const;
 
 const DEFAULT_STORAGE_POLL_INTERVAL_MS = 1_500;
+const MAX_REATTACHES = 5;
+const REATTACH_DELAY_MS = 500;
 const AKIFLOW_WEB_ORIGIN = "https://web.akiflow.com";
 
 // A session restored from the profile can load the app without any token
@@ -251,6 +253,7 @@ export class CdpBrowserLogin {
       await this.getWebSocketUrl();
       const deadline = Date.now() + this.loginTimeoutMs;
       let captured: ExtractedToken | null = null;
+      let reattaches = 0;
       while (!captured) {
         const pageWsUrl = await this.getPageDebuggerUrl();
         ws = this.createWebSocketFn(pageWsUrl);
@@ -262,8 +265,11 @@ export class CdpBrowserLogin {
           // Re-discover the page and attach again; if Chrome is gone,
           // getPageDebuggerUrl() times out and that error surfaces instead.
           if (!(err instanceof CdpSocketClosedError) || Date.now() >= deadline) throw err;
-          this.logger.info(`[cdp] ${err.message} — reattaching to the page`);
+          if (reattaches >= MAX_REATTACHES) throw err;
+          reattaches += 1;
+          this.logger.info(`[cdp] ${err.message} — reattaching to the page (${reattaches}/${MAX_REATTACHES})`);
           ws = null;
+          await sleep(REATTACH_DELAY_MS);
         }
       }
       const token: ExtractedToken = { ...captured, browser: this.labelFor(chromePath) };

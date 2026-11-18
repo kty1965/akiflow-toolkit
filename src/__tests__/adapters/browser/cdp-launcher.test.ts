@@ -709,7 +709,7 @@ describe("login", () => {
     await new Promise((r) => setTimeout(r, 20));
     sockets[0].emit("open");
     sockets[0].emit("close", { code: 1006 });
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 600));
     sockets[1].emit("open");
     const cmd = await waitForSent(sockets[1], "Runtime.evaluate");
     sockets[1].emitMessage({ id: cmd.id, result: { result: { value: [{ access_token: fakeJwt(exp) }] } } });
@@ -720,6 +720,32 @@ describe("login", () => {
     expect(token?.expiresAt).toBe(exp);
     expect(child.killed).toBe(true);
   });
+
+  test("gives up after repeated socket drops instead of reattaching forever", async () => {
+    // Given: every page socket closes immediately after opening
+    const child = new FakeChildProcess();
+    const createWebSocketFn = mock(() => {
+      const ws = new FakeWebSocket();
+      setTimeout(() => ws.emit("close", { code: 1006 }), 1);
+      return ws;
+    });
+    const login = new CdpBrowserLogin({
+      logger: silentLogger(),
+      userDataDir: "/tmp/akiflow-test-profile",
+      port: 9999,
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      loginTimeoutMs: 10_000,
+      discoveryTimeoutMs: 200,
+      spawnFn: mock(() => child),
+      fetchFn: makeDiscoveryFetchFn(9999),
+      createWebSocketFn,
+    });
+
+    // When/Then: one initial attach plus 5 reattaches, then the close error surfaces
+    await expect(login.login()).rejects.toThrow(/closed before token captured/);
+    expect(createWebSocketFn).toHaveBeenCalledTimes(6);
+    expect(child.killed).toBe(true);
+  }, 10_000);
 
   // Security (SECURITY-AUDIT-REPORT S-13): validateTokenFn hook for
   // defeating an attacker that injected a bogus token through a port squat.
