@@ -8,6 +8,7 @@ import {
   type CdpWebSocketEventName,
   type MinimalWebSocket,
   parseTokenBody,
+  pickStoredAccountToken,
 } from "@adapters/browser/cdp-launcher.ts";
 import { BrowserDataError } from "@core/errors/index.ts";
 import type { LoggerPort } from "@core/ports/logger-port.ts";
@@ -77,6 +78,7 @@ interface MakeOptionsOverrides {
   port?: number;
   loginTimeoutMs?: number;
   discoveryTimeoutMs?: number;
+  storagePollIntervalMs?: number;
   chromePath?: string;
   spawnFn?: CdpBrowserLoginOptions["spawnFn"];
   fetchFn?: CdpBrowserLoginOptions["fetchFn"];
@@ -94,6 +96,7 @@ function makeLogin(overrides: MakeOptionsOverrides = {}): CdpBrowserLogin {
     chromePath: overrides.chromePath,
     loginTimeoutMs: overrides.loginTimeoutMs ?? 1_000,
     discoveryTimeoutMs: overrides.discoveryTimeoutMs ?? 200,
+    storagePollIntervalMs: overrides.storagePollIntervalMs,
     spawnFn: overrides.spawnFn,
     fetchFn: overrides.fetchFn,
     createWebSocketFn: overrides.createWebSocketFn,
@@ -122,6 +125,27 @@ function makeDiscoveryFetchFn(port: number, browserId = "Chrome/122.0.6261.94") 
       json: async () => ({ Browser: browserId, webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/x` }),
     };
   });
+}
+
+function fakeJwt(exp: number): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none" }), "utf-8").toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ aud: "10", exp }), "utf-8").toString("base64url");
+  return `${header}.${payload}.sig`;
+}
+
+function nowSec(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+async function waitForSent(ws: FakeWebSocket, method: string): Promise<{ id: number; method: string }> {
+  for (let i = 0; i < 100; i++) {
+    for (let j = ws.sent.length - 1; j >= 0; j--) {
+      const cmd = ws.sentCommand(j);
+      if (cmd.method === method) return cmd;
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`${method} was never sent`);
 }
 
 // --- findChromePath -------------------------------------------------------
@@ -350,6 +374,30 @@ describe("getPageDebuggerUrl", () => {
     expect(ws).toBe("ws://127.0.0.1:9999/devtools/page/abc");
   });
 
+  test("prefers the akiflow page over other page targets", async () => {
+    // Given: a restored blank tab listed before the Akiflow tab
+    const fetchFn = mock(
+      async (): Promise<CdpFetchResponse> => ({
+        ok: true,
+        json: async () => [
+          { type: "page", url: "chrome://newtab/", webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/page/blank" },
+          {
+            type: "page",
+            url: "https://web.akiflow.com/#/planner/today",
+            webSocketDebuggerUrl: "ws://127.0.0.1:9999/devtools/page/aki",
+          },
+        ],
+      }),
+    );
+    const login = makeLogin({ fetchFn });
+
+    // When
+    const ws = await login.getPageDebuggerUrl();
+
+    // Then
+    expect(ws).toBe("ws://127.0.0.1:9999/devtools/page/aki");
+  });
+
   test("throws BrowserDataError when discovery exceeds the configured timeout", async () => {
     // Given: /json/list never lists a page target (e.g. Chrome still starting)
     const fetchFn = mock(
@@ -491,6 +539,51 @@ describe("waitForLogin", () => {
     await expect(promise).rejects.toBeInstanceOf(BrowserDataError);
   });
 
+  test("reads the token from the web app's IndexedDB via Runtime.evaluate", async () => {
+    // Given: a session restored from the profile, so no token request hits the network
+    const ws = new FakeWebSocket();
+    const login = makeLogin({ storagePollIntervalMs: 10 });
+    const promise = login.waitForLogin(ws);
+    const exp = nowSec() + 1800;
+
+    // When: the storage poll fires and the page returns the account record
+    ws.emit("open");
+    const cmd = await waitForSent(ws, "Runtime.evaluate");
+    ws.emitMessage({
+      id: cmd.id,
+      result: { result: { type: "object", value: [{ access_token: fakeJwt(exp), refresh_token: "def50200RT" }] } },
+    });
+
+    // Then
+    const token = await promise;
+    expect(token.accessToken).toBe(fakeJwt(exp));
+    expect(token.refreshToken).toBe("def50200RT");
+    expect(token.expiresAt).toBe(exp);
+  });
+
+  test("keeps polling while the page has no stored account (login not finished)", async () => {
+    // Given
+    const ws = new FakeWebSocket();
+    const login = makeLogin({ storagePollIntervalMs: 10 });
+    const promise = login.waitForLogin(ws);
+    const exp = nowSec() + 1800;
+
+    // When: the first poll finds nothing (still on /auth/login), the next one finds the account
+    ws.emit("open");
+    const first = await waitForSent(ws, "Runtime.evaluate");
+    ws.emitMessage({ id: first.id, result: { result: { type: "object", subtype: "null", value: null } } });
+    let second = first;
+    while (second.id === first.id) {
+      await new Promise((r) => setTimeout(r, 5));
+      second = await waitForSent(ws, "Runtime.evaluate");
+    }
+    ws.emitMessage({ id: second.id, result: { result: { type: "object", value: [{ access_token: fakeJwt(exp) }] } } });
+
+    // Then
+    const token = await promise;
+    expect(token.expiresAt).toBe(exp);
+  });
+
   test("rejects with BrowserDataError when WebSocket closes before token captured", async () => {
     // Given
     const ws = new FakeWebSocket();
@@ -590,6 +683,69 @@ describe("login", () => {
     expect(child.killed).toBe(true);
     expect(child.killSignal).toBe("SIGTERM");
   });
+
+  test("reattaches to the page when the socket drops while Chrome is still running", async () => {
+    // Given: the first page socket closes with 1006, the second one yields the token
+    const child = new FakeChildProcess();
+    const sockets = [new FakeWebSocket(), new FakeWebSocket()];
+    let created = 0;
+    const createWebSocketFn = mock(() => sockets[created++]);
+    const login = new CdpBrowserLogin({
+      logger: silentLogger(),
+      userDataDir: "/tmp/akiflow-test-profile",
+      port: 9999,
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      loginTimeoutMs: 1_000,
+      discoveryTimeoutMs: 200,
+      storagePollIntervalMs: 10,
+      spawnFn: mock(() => child),
+      fetchFn: makeDiscoveryFetchFn(9999),
+      createWebSocketFn,
+    });
+    const exp = nowSec() + 1800;
+
+    // When
+    const promise = login.login();
+    await new Promise((r) => setTimeout(r, 20));
+    sockets[0].emit("open");
+    sockets[0].emit("close", { code: 1006 });
+    await new Promise((r) => setTimeout(r, 600));
+    sockets[1].emit("open");
+    const cmd = await waitForSent(sockets[1], "Runtime.evaluate");
+    sockets[1].emitMessage({ id: cmd.id, result: { result: { value: [{ access_token: fakeJwt(exp) }] } } });
+
+    // Then
+    const token = await promise;
+    expect(createWebSocketFn).toHaveBeenCalledTimes(2);
+    expect(token?.expiresAt).toBe(exp);
+    expect(child.killed).toBe(true);
+  });
+
+  test("gives up after repeated socket drops instead of reattaching forever", async () => {
+    // Given: every page socket closes immediately after opening
+    const child = new FakeChildProcess();
+    const createWebSocketFn = mock(() => {
+      const ws = new FakeWebSocket();
+      setTimeout(() => ws.emit("close", { code: 1006 }), 1);
+      return ws;
+    });
+    const login = new CdpBrowserLogin({
+      logger: silentLogger(),
+      userDataDir: "/tmp/akiflow-test-profile",
+      port: 9999,
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      loginTimeoutMs: 10_000,
+      discoveryTimeoutMs: 200,
+      spawnFn: mock(() => child),
+      fetchFn: makeDiscoveryFetchFn(9999),
+      createWebSocketFn,
+    });
+
+    // When/Then: one initial attach plus 5 reattaches, then the close error surfaces
+    await expect(login.login()).rejects.toThrow(/closed before token captured/);
+    expect(createWebSocketFn).toHaveBeenCalledTimes(6);
+    expect(child.killed).toBe(true);
+  }, 10_000);
 
   // Security (SECURITY-AUDIT-REPORT S-13): validateTokenFn hook for
   // defeating an attacker that injected a bogus token through a port squat.
@@ -726,5 +882,47 @@ describe("parseTokenBody", () => {
 
     // Then
     expect(token?.expiresAt).toBe(exp);
+  });
+});
+
+// --- pickStoredAccountToken (pure) ----------------------------------------
+
+describe("pickStoredAccountToken", () => {
+  test("returns null for a non-array value (no akiflow_system database yet)", () => {
+    expect(pickStoredAccountToken(null)).toBeNull();
+    expect(pickStoredAccountToken({ access_token: fakeJwt(nowSec() + 60) })).toBeNull();
+  });
+
+  test("skips expired and non-JWT access tokens", () => {
+    // Given
+    const rows = [{ access_token: fakeJwt(nowSec() - 60) }, { access_token: "not-a-jwt" }];
+
+    // When/Then
+    expect(pickStoredAccountToken(rows)).toBeNull();
+  });
+
+  test("picks the latest-expiring account when several are stored", () => {
+    // Given
+    const soon = nowSec() + 300;
+    const later = nowSec() + 1800;
+    const rows = [
+      { access_token: fakeJwt(soon), refresh_token: "RT-soon" },
+      { access_token: fakeJwt(later), refresh_token: "RT-later" },
+    ];
+
+    // When
+    const token = pickStoredAccountToken(rows);
+
+    // Then
+    expect(token?.refreshToken).toBe("RT-later");
+    expect(token?.expiresAt).toBe(later);
+  });
+
+  test("floors a fractional exp claim", () => {
+    // Given: Akiflow issues exp with a fractional part
+    const exp = nowSec() + 1800.28;
+
+    // When/Then
+    expect(pickStoredAccountToken([{ access_token: fakeJwt(exp) }])?.expiresAt).toBe(Math.floor(exp));
   });
 });
