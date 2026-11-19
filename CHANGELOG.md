@@ -1,3 +1,10 @@
+## [1.8.2](https://github.com/kty1965/akiflow-toolkit/compare/v1.8.1...v1.8.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* **tasks:** store the subtask parent in data.super_task_id ([e839683](https://github.com/kty1965/akiflow-toolkit/commit/e8396839d9b5639b7385949eb713c1858a294a71))
+
 ## [1.8.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.8.0...v1.8.1) (2026-11-19)
 
 
