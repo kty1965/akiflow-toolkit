@@ -88,7 +88,7 @@ export class TaskCommandService {
     if (input.duration !== undefined) payload.duration = input.duration;
     if (input.projectId !== undefined) payload.listId = input.projectId;
     if (input.deadline !== undefined) payload.due_date = input.deadline;
-    if (input.parentId !== undefined) payload.parent_id = input.parentId;
+    if (input.parentId !== undefined) payload.data = { super_task_id: input.parentId };
 
     return this.patchSingle(payload, "createTask");
   }
@@ -109,7 +109,7 @@ export class TaskCommandService {
     if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence;
     if (patch.description !== undefined) payload.description = patch.description;
     if (patch.priority !== undefined) payload.priority = patch.priority;
-    if (patch.parentId !== undefined) payload.parent_id = patch.parentId;
+    if (patch.parentId !== undefined) payload.data = { super_task_id: patch.parentId };
     if (patch.position !== undefined) payload.position = patch.position;
     if (patch.tags !== undefined) payload.tags_ids = patch.tags;
     if (patch.deadline !== undefined) payload.due_date = patch.deadline;

@@ -163,6 +163,20 @@ describe("TaskCommandService", () => {
       expect(typeof first.global_updated_at).toBe("string");
     });
 
+    test("creates as a subtask by sending parentId as data.super_task_id", async () => {
+      // Given: a capturing http port
+      const { port, calls } = createHttp();
+      const service = new TaskCommandService({ auth: buildAuth(), http: port, logger: createLogger() });
+
+      // When: createTask is called with a parent
+      await service.createTask({ title: "child", parentId: "parent-1" });
+
+      // Then: the parent link uses the stored wire field, not a top-level parent_id
+      const first = calls[0].tasks[0] as CreateTaskPayload;
+      expect(first.data).toEqual({ super_task_id: "parent-1" });
+      expect("parent_id" in first).toBe(false);
+    });
+
     test("retries on 5xx then succeeds", async () => {
       // Given: first call throws 503, second succeeds
       let attempts = 0;
@@ -321,9 +335,11 @@ describe("TaskCommandService", () => {
       // When: update parentId + position
       await service.updateTask("id-1", { parentId: "parent-1", position: 3 });
 
-      // Then: payload carries parent_id and position through unchanged
+      // Then: the parent goes into data.super_task_id (the field Akiflow actually stores);
+      // a top-level parent_id is accepted with 200 but silently dropped by the server
       const payload = calls[0].tasks[0] as UpdateTaskPayload;
-      expect(payload.parent_id).toBe("parent-1");
+      expect(payload.data).toEqual({ super_task_id: "parent-1" });
+      expect("parent_id" in payload).toBe(false);
       expect(payload.position).toBe(3);
     });
 
@@ -338,7 +354,8 @@ describe("TaskCommandService", () => {
       // Then: explicit nulls must pass through and clear the field, matching
       // how description/priority clearing works above
       const payload = calls[0].tasks[0] as UpdateTaskPayload;
-      expect(payload.parent_id).toBeNull();
+      expect(payload.data).toEqual({ super_task_id: null });
+      expect("parent_id" in payload).toBe(false);
       expect(payload.position).toBeNull();
     });
   });
