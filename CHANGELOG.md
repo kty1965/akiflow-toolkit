@@ -1,3 +1,13 @@
+## [1.8.1](https://github.com/kty1965/akiflow-toolkit/compare/v1.8.0...v1.8.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **auth:** cap cdp page reattaches with a short backoff ([711bab8](https://github.com/kty1965/akiflow-toolkit/commit/711bab860e975b6264d0e1c5d1e0a51962fbd586))
+* **auth:** look for safari cookies in the sandboxed container first ([b8897bd](https://github.com/kty1965/akiflow-toolkit/commit/b8897bd6e518adf96590c958d963bf28fa1ae5a9))
+* **auth:** read cdp login token from the web app's indexeddb ([2e8b4c2](https://github.com/kty1965/akiflow-toolkit/commit/2e8b4c2c044006f0f87e463c3f23878288ebd423))
+* **auth:** surface cdp login failure at warn level ([7f7dbce](https://github.com/kty1965/akiflow-toolkit/commit/7f7dbce6cad0dcbc2448c77749531c8eba941781))
+
 # [1.8.0](https://github.com/kty1965/akiflow-toolkit/compare/v1.7.0...v1.8.0) (2026-11-09)
 
 
