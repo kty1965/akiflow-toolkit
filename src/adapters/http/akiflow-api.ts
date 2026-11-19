@@ -113,13 +113,13 @@ export class AkiflowHttpAdapter implements AkiflowHttpPort {
     const path = qs.toString() ? `/v5/tasks?${qs.toString()}` : "/v5/tasks";
     const res = await this.request<ApiResponse<unknown[]>>("GET", path, token);
     assertApiResponseArray(res, "getTasks");
-    return { ...res, data: res.data.map(mapTaskTags) };
+    return { ...res, data: res.data.map(mapTask) };
   }
 
   async patchTasks(token: string, tasks: Array<CreateTaskPayload | UpdateTaskPayload>): Promise<ApiResponse<Task[]>> {
     const res = await this.request<ApiResponse<unknown[]>>("PATCH", "/v5/tasks", token, tasks);
     assertApiResponseArray(res, "patchTasks");
-    return { ...res, data: res.data.map(mapTaskTags) };
+    return { ...res, data: res.data.map(mapTask) };
   }
 
   /**
@@ -443,8 +443,13 @@ function mapTimeSlot(raw: any): TimeSlot {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray
-function mapTaskTags(raw: any): Task {
-  return { ...raw, tags: raw?.tags_ids ?? [], links: raw?.links ?? [] } as Task;
+function mapTask(raw: any): Task {
+  return {
+    ...raw,
+    tags: raw?.tags_ids ?? [],
+    links: raw?.links ?? [],
+    parent_id: raw?.data?.super_task_id ?? null,
+  } as Task;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw API response, shape asserted by assertApiResponseArray

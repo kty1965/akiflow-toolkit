@@ -44,11 +44,17 @@ export interface Task {
   labels: string[];
   shared: boolean;
   source: string | null;
-  parent_id: string | null;
+  parent_id: string | null; // derived from data.super_task_id — Akiflow has no parent_id wire field
   position: number | null;
   due_date: string | null; // YYYY-MM-DD — deadline, distinct from `date` (scheduled day)
   links: string[];
   plan_unit?: string | null; // WEEK | MONTH when planned without a date
+}
+
+// Subtask link lives in the task's `data` blob (live-probed: app-nested subtasks carry
+// data.super_task_id; a top-level parent_id is accepted with 200 but never stored).
+export interface TaskData {
+  super_task_id?: string | null;
 }
 
 // Create payload — H1: client-side UUID required for PATCH UPSERT
@@ -61,7 +67,7 @@ export interface CreateTaskPayload {
   duration?: number;
   listId?: string;
   due_date?: string;
-  parent_id?: string;
+  data?: TaskData;
   global_created_at: string;
   global_updated_at: string;
 }
@@ -81,7 +87,7 @@ export interface UpdateTaskPayload {
   recurrence?: string | null;
   description?: string | null;
   priority?: number | null;
-  parent_id?: string | null;
+  data?: TaskData;
   position?: number | null;
   shared?: boolean;
   tags_ids?: string[];

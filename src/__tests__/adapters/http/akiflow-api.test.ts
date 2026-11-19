@@ -238,6 +238,46 @@ describe("adapters/http/AkiflowHttpAdapter", () => {
       // Then: links defaults to [] so Array.isArray checks downstream stay safe
       expect(res.data[0]?.links).toEqual([]);
     });
+
+    test("maps raw `data.super_task_id` to domain `parent_id` (live-probed: Akiflow has no parent_id field)", async () => {
+      // Given: a raw /v5/tasks response for a subtask nested in the Akiflow app
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              message: null,
+              data: [{ id: "t-1", title: "Child", data: { super_task_id: "parent-1" } }],
+            }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: parent_id is populated from data.super_task_id
+      expect(res.data[0]?.parent_id).toBe("parent-1");
+    });
+
+    test("maps a task without `data.super_task_id` to parent_id null", async () => {
+      // Given: a top-level task (Akiflow returns data: {} for non-subtasks)
+      mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({ success: true, message: null, data: [{ id: "t-1", title: "Sample", data: {} }] }),
+            { status: 200 },
+          ),
+      );
+      const adapter = new AkiflowHttpAdapter("c", createLogger());
+
+      // When: getTasks is called
+      const res = await adapter.getTasks("t");
+
+      // Then: parent_id is null, not undefined
+      expect(res.data[0]?.parent_id).toBeNull();
+    });
   });
 
   describe("getLabels", () => {
